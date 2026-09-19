@@ -9,6 +9,7 @@ import { Confirm, Dropdown, Modal, Select, TextArea, TextInput } from '@/compone
 import { addDays, dowMon, fmtDay, fmtLong, todayISO } from '@/lib/dates';
 import { href } from '@/lib/routes';
 import { useStore } from '@/store';
+import { errMsg } from '@/lib/api';
 import type { Note } from '@/store/types';
 import { noteSearch, spentToday } from '@/store/selectors';
 import { habitsDoneToday, habitsDueToday, openToday, doneToday, sleepMinutes, hm } from '@/store/selectors';
@@ -121,7 +122,8 @@ export function JournalScreen() {
   const [text, setText] = useState(''); const [mood, setMood] = useState(-1); const [draft, setDraft] = useState<null | { text: string; sources: string }>(null); const [kept, setKept] = useState(false);
   useEffect(() => { setText(entry?.body || ''); setMood(entry?.mood ?? (s.wellness[day]?.mood ?? -1)); setDraft(null); setKept(false); }, [day, entry?.id]); // eslint-disable-line react-hooks/exhaustive-deps
   const weekStart = addDays(day, -dowMon(day)); const week = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
-  const gen = () => { setDraft(draftFor(day, s)); s.logAiAction({ action: 'Drafted journal', detail: `Journal — ${fmtDay(day, { relative: false })} (draft, not saved)`, state: 'Pending', tone: 'accent', revertible: false }); };
+  const [drafting, setDrafting] = useState(false);
+  const gen = async () => { setDrafting(true); try { setDraft(s.aiEnabled ? await s.journalDraft(day) : draftFor(day, s)); s.logAiAction({ action: 'Drafted journal', detail: `Journal — ${fmtDay(day, { relative: false })} (draft, not saved)`, state: 'Pending', tone: 'accent', revertible: false }); } catch (e) { s.toast(errMsg(e), { tone: 'danger' }); setDraft(draftFor(day, s)); } finally { setDrafting(false); } };
   const save = () => { const body = kept && draft ? `${draft.text}\n\n${text}`.trim() : text.trim(); if (!body) { s.toast('Write something first', { tone: 'danger' }); return; } if (entry) s.updateNote(entry.id, { body, mood: mood >= 0 ? mood : undefined, ai: kept }); else s.addNote({ title: `Journal — ${fmtDay(day, { relative: false })}`, body, folder: 'Journal', tags: ['journal'], journalDate: day, mood: mood >= 0 ? mood : undefined, ai: kept }); if (mood >= 0) s.saveWellness(day, { mood }); s.addActivity('Journal entry saved', 'edit'); s.toast('Journal saved'); setDraft(null); setKept(false); };
   const earlier = s.notes.filter((n) => n.journalDate && n.journalDate !== day).sort((a, b) => b.journalDate!.localeCompare(a.journalDate!)).slice(0, 5);
   return (
@@ -129,7 +131,7 @@ export function JournalScreen() {
       <div className="weekstrip">{week.map((d) => <button type="button" key={d} className={d === day ? 'on' : ''} onClick={() => setDay(d)} disabled={d > todayISO()} style={d > todayISO() ? { opacity: .4 } : undefined}>{fmtDay(d, { relative: false }).slice(0, 3)}<b>{+d.slice(8)}</b><i style={{ opacity: s.notes.some((n) => n.journalDate === d) ? 1 : 0 }} /></button>)}</div>
       <div className="row between xs muted"><a className="link" onClick={() => setDay(addDays(day, -7))}>← Previous week</a><span>{fmtLong(day)}</span><a className="link" onClick={() => { if (addDays(day, 7) <= todayISO()) setDay(addDays(day, 7)); }}>Next week →</a></div>
       <Card>
-        <div className="row between"><div><div className="eyebrow">{fmtLong(day)}</div><h2 style={{ fontSize: 19 }}>{day === todayISO() ? 'Today' : fmtDay(day)}</h2></div>{entry ? <Chip tone="success" ic="check" cls="sm">Saved{entry.ai ? ' · AI-assisted' : ''}</Chip> : draft ? <Chip tone="ai" ic="sparkles" cls="sm">Draft · AI-generated</Chip> : <Btn label="Draft with AI" ic="sparkles" kind="soft" cls="sm" onClick={gen} />}</div>
+        <div className="row between"><div><div className="eyebrow">{fmtLong(day)}</div><h2 style={{ fontSize: 19 }}>{day === todayISO() ? 'Today' : fmtDay(day)}</h2></div>{entry ? <Chip tone="success" ic="check" cls="sm">Saved{entry.ai ? ' · AI-assisted' : ''}</Chip> : draft ? <Chip tone="ai" ic="sparkles" cls="sm">Draft · AI-generated</Chip> : <Btn label={drafting ? "Drafting…" : "Draft with AI"} ic="sparkles" kind="soft" cls="sm" onClick={gen} />}</div>
         {draft && !kept && <div className="ai-block mt"><div className="editor" style={{ fontSize: 14 }}>{draft.text.split('\n\n').map((p, i) => <p key={i} dangerouslySetInnerHTML={{ __html: p.replace(/\*\*(.+?)\*\*/g, '<b>$1</b>') }} />)}</div><div className="row mt-s" style={{ gap: 6 }}><Btn label="Keep & edit" kind="soft" cls="sm" onClick={() => { setText((t) => (draft.text + '\n\n' + t).trim()); setKept(true); setDraft(null); }} /><Btn label="Regenerate" ic="refresh" kind="ghost" cls="sm" onClick={gen} /><Btn label="Discard" kind="ghost" cls="sm" onClick={() => setDraft(null)} /></div><div className="xs faint mt-s">Generated from the day&apos;s timeline: {draft.sources}. Edit freely — the draft is never saved without you.</div></div>}
         <div className="mt"><TextArea label={entry ? 'Your entry' : 'Your words'} value={text} onChange={setText} placeholder="What stood out today?" rows={6} /></div>
         <div className="row mt-s" style={{ gap: 8, alignItems: 'center' }}><div className="mood" style={{ flex: 1 }}><MoodRow on={mood} onChange={setMood} small /></div><Btn label={entry ? 'Update entry' : 'Save entry'} kind="primary" cls="grow" onClick={save} /></div>

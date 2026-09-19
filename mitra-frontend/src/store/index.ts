@@ -15,7 +15,8 @@ import { api, ApiError, errMsg } from '@/lib/api';
 import { addDays, todayISO, uid, uuid } from '@/lib/dates';
 import * as seed from './seed';
 export type * from './types';
-import type { Account, ActivityRow, AiAction, AiMessage, AuthStatus, Category, Goal, Habit, Milestone, Note, Notification, Project, Recurring, Settings, Subscription, Suggestion, Task, Toast, Transaction, User, WellnessEntry, WellnessSettings } from './types';
+import type { AiReply } from '@/lib/ai';
+import type { Account, ActivityRow, AiAction, AiMessage, AuthStatus, RevertOp, Category, Goal, Habit, Milestone, Note, Notification, Project, Recurring, Settings, Subscription, Suggestion, Task, Toast, Transaction, User, WellnessEntry, WellnessSettings } from './types';
 
 type TasksBootstrap = { tasks: Task[]; projects: Project[] };
 type MoneyBootstrap = { accounts: Account[]; categories: Category[]; transactions: Transaction[]; recurring: Recurring[]; subscriptions: Subscription[] };
@@ -37,7 +38,7 @@ export type State = {
   transactions: Transaction[]; categories: Category[]; accounts: Account[]; subscriptions: Subscription[]; recurring: Recurring[];
   wellness: Record<string, WellnessEntry>; wellnessSettings: WellnessSettings;
   notes: Note[]; notifications: Notification[];
-  aiMessages: AiMessage[]; aiActions: AiAction[]; suggestions: Suggestion[];
+  aiMessages: AiMessage[]; aiActions: AiAction[]; suggestions: Suggestion[]; aiEnabled: boolean;
   settings: Settings; toasts: Toast[];
   activity: ActivityRow[];
 };
@@ -61,6 +62,11 @@ type Actions = {
   loadGoals: () => Promise<void>;
   loadNotes: () => Promise<void>;
   loadWellness: () => Promise<void>;
+  // ai (API)
+  askAi: (text: string) => Promise<AiReply>;
+  loadAiActions: () => Promise<void>;
+  loadSuggestions: (refresh?: boolean) => Promise<void>;
+  journalDraft: (date: string) => Promise<{ text: string; sources: string }>;
   loadActivity: () => Promise<void>;
   // tasks
   addTask: (t: Partial<Task> & { title: string }) => Task;
@@ -115,6 +121,7 @@ type Actions = {
   updateAiMessage: (id: string, patch: Partial<AiMessage>) => void;
   clearAi: () => void;
   logAiAction: (a: Omit<AiAction, 'id' | 'when'>) => void;
+  runRevert: (ops: RevertOp[]) => void;
   revertAiAction: (id: string) => void;
   setSuggestion: (id: string, state: Suggestion['state']) => void;
   // settings / misc
@@ -133,7 +140,7 @@ const initial = (): State => ({
   transactions: [], categories: [], accounts: [], subscriptions: [], recurring: [],
   wellness: {}, wellnessSettings: seed.WELLNESS_SETTINGS,
   notes: [], notifications: seed.NOTIFICATIONS,
-  aiMessages: [], aiActions: seed.AI_ACTIONS, suggestions: seed.SUGGESTIONS,
+  aiMessages: [], aiActions: [], suggestions: [], aiEnabled: true,
   settings: seed.SETTINGS, toasts: [],
   activity: [
     { id: 'ac2', when: '11:05 AM', date: todayISO(), text: 'Meditate ✓', icon: 'sun', tone: 'success' },
@@ -156,10 +163,10 @@ export const useStore = create<State & Actions>()(persist((set, get) => {
 
   /* ---------- auth & profile ---------- */
   fetchMe: async () => {
-    try { const { user } = await api.get<{ user: User }>('/auth/me'); setUser(user); await Promise.all([get().loadMoney(), get().loadTasks(), get().loadHabits(), get().loadGoals(), get().loadNotes(), get().loadWellness(), get().loadActivity()]); }
+    try { const { user } = await api.get<{ user: User }>('/auth/me'); setUser(user); await Promise.all([get().loadMoney(), get().loadTasks(), get().loadHabits(), get().loadGoals(), get().loadNotes(), get().loadWellness(), get().loadActivity(), get().loadAiActions()]); }
     catch (e) { if (e instanceof ApiError && e.unauthenticated) set({ auth: 'guest', user: null }); else if (get().user) set({ auth: 'authed' }); /* offline with a cached profile: keep the shell usable */ else set({ auth: 'guest' }); }
   },
-  login: async (identifier, password, remember) => { const { user } = await api.post<{ user: User }>('/auth/login', { identifier, password, remember }); setUser(user); void Promise.all([get().loadMoney(), get().loadTasks(), get().loadHabits(), get().loadGoals(), get().loadNotes(), get().loadWellness(), get().loadActivity()]); return user; },
+  login: async (identifier, password, remember) => { const { user } = await api.post<{ user: User }>('/auth/login', { identifier, password, remember }); setUser(user); void Promise.all([get().loadMoney(), get().loadTasks(), get().loadHabits(), get().loadGoals(), get().loadNotes(), get().loadWellness(), get().loadActivity(), get().loadAiActions()]); return user; },
   signup: async (name, email, password) => { const { user } = await api.post<{ user: User }>('/auth/signup', { name, email, password }); setUser(user); void Promise.all([get().loadMoney(), get().loadTasks(), get().loadHabits(), get().loadGoals(), get().loadNotes(), get().loadWellness()]); return user; },
   logout: async () => { try { await api.post('/auth/logout'); } catch {} set({ user: null, auth: 'guest', moneyLoaded: false, tasksLoaded: false, habitsLoaded: false, goalsLoaded: false, notesLoaded: false, wellnessLoaded: false, transactions: [], categories: [], accounts: [], subscriptions: [], recurring: [], tasks: [], projects: [], habits: [], goals: [], notes: [], wellness: {}, aiMessages: [] }); },
   forgotPassword: (email) => api.post('/auth/forgot-password', { email }).then(() => undefined),
@@ -174,6 +181,10 @@ export const useStore = create<State & Actions>()(persist((set, get) => {
   loadHabits: async () => { const habits = await api.get<Habit[]>('/habits'); set({ habits, habitsLoaded: true }); },
   loadGoals: async () => { const goals = await api.get<Goal[]>('/goals'); set({ goals, goalsLoaded: true }); },
   loadNotes: async () => { const notes = await api.get<Note[]>('/notes'); set({ notes, notesLoaded: true }); },
+  loadAiActions: async () => { try { const [st, aiActions] = await Promise.all([api.get<{ enabled: boolean }>('/ai/status'), api.get<AiAction[]>('/ai/actions')]); set({ aiActions, aiEnabled: st.enabled }); } catch { /* non-critical */ } },
+  askAi: async (text) => { const history = get().aiMessages.slice(-10).map((m) => ({ who: m.who, text: m.text })); return api.post<AiReply>('/ai/ask', { text, history }); },
+  loadSuggestions: async (refresh = false) => { const fresh = await api.get<Omit<Suggestion, 'state'>[]>('/ai/suggestions', refresh ? { refresh: 1 } : undefined); set((s) => ({ suggestions: fresh.map((x) => ({ ...x, state: s.suggestions.find((o) => o.id === x.id)?.state ?? 'open' })) })); },
+  journalDraft: (date) => api.post<{ text: string; sources: string }>('/ai/journal-draft', { date }),
   loadWellness: async () => { const w = await api.get<{ entries: Record<string, WellnessEntry>; settings: WellnessSettings }>('/wellness/bootstrap'); set({ wellness: w.entries, wellnessSettings: w.settings, wellnessLoaded: true }); },
   loadActivity: async () => { const rows = await api.get<ServerActivity[]>('/activity', { limit: 200 }); set((s) => ({ activity: [...rows.map(fromServerActivity), ...s.activity.filter((a) => !a.module)].sort((a, b) => (b.at || b.date + 'T23:59').localeCompare(a.at || a.date + 'T23:59')).slice(0, 300) })); },
 
@@ -310,8 +321,13 @@ export const useStore = create<State & Actions>()(persist((set, get) => {
   pushAiMessage: (m) => { const msg = { id: uid(), ...m }; set((s) => ({ aiMessages: [...s.aiMessages, msg] })); return msg; },
   updateAiMessage: (id, patch) => set((s) => ({ aiMessages: s.aiMessages.map((m) => m.id === id ? { ...m, ...patch } : m) })),
   clearAi: () => set({ aiMessages: [] }),
-  logAiAction: (a) => set((s) => ({ aiActions: [{ id: uid(), when: 'Today ' + nowLabel(), ...a }, ...s.aiActions] })),
-  revertAiAction: (id) => set((s) => ({ aiActions: [{ id: uid(), when: 'Today ' + nowLabel(), action: 'Reverted', detail: s.aiActions.find((a) => a.id === id)?.detail || '', state: 'By you', tone: 'warning', revertible: false }, ...s.aiActions.map((a) => a.id === id ? { ...a, reverted: true, state: a.state + ' · reverted' } : a)] })),
+  /** Append-only audit log on the server; optimistic row first, replaced by the saved one. */
+  logAiAction: (a) => { const temp = uid(); set((s) => ({ aiActions: [{ id: temp, when: 'Today ' + nowLabel(), ...a }, ...s.aiActions] })); api.post<AiAction>('/ai/actions', { action: a.action, detail: a.detail, state: a.state, tone: a.tone, revertible: a.revertible, revert: a.revert }).then((saved) => set((s) => ({ aiActions: s.aiActions.map((x) => x.id === temp ? saved : x) }))).catch(() => {}); },
+  runRevert: (ops) => { const s = get(); ops.forEach((o) => { switch (o.op) {
+    case 'deleteTransaction': s.deleteTransaction(o.id); break; case 'deleteTask': s.deleteTask(o.id); break; case 'deleteGoal': s.deleteGoal(o.id); break; case 'deleteHabit': s.deleteHabit(o.id); break; case 'deleteRecurring': s.deleteRecurring(o.id); break;
+    case 'updateTask': s.updateTask(o.id, o.patch); break; case 'updateHabit': s.updateHabit(o.id, o.patch); break; case 'updateGoal': s.updateGoal(o.id, o.patch); break; case 'updateCategory': s.updateCategory(o.id, o.patch); break; case 'updateRecurring': s.updateRecurring(o.id, o.patch); break;
+  } }); },
+  revertAiAction: (id) => { const a = get().aiActions.find((x) => x.id === id); if (!a || a.reverted) return; if (a.revert?.length) get().runRevert(a.revert); set((s) => ({ aiActions: [{ id: uid(), when: 'Today ' + nowLabel(), action: 'Reverted', detail: a.detail, state: 'By you', tone: 'warning', revertible: false }, ...s.aiActions.map((x) => x.id === id ? { ...x, reverted: true, state: x.state + ' · reverted' } : x)] })); api.post(`/ai/actions/${id}/revert`).then(() => get().loadAiActions()).catch(() => {}); },
   setSuggestion: (id, state) => set((s) => ({ suggestions: s.suggestions.map((x) => x.id === id ? { ...x, state } : x) })),
 
   /* ---------- settings / misc ---------- */
@@ -320,9 +336,9 @@ export const useStore = create<State & Actions>()(persist((set, get) => {
   toast: (msg, opts = {}) => { const id = uid(); set((s) => ({ toasts: [...s.toasts.slice(-2), { id, msg, undo: opts.undo, tone: opts.tone }] })); setTimeout(() => get().dismissToast(id), opts.undo ? 6000 : 3200); },
   dismissToast: (id) => set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })),
   /** Restores the sample data of the still-local bits (AI chat/suggestions, notifications); everything server-backed is untouched. */
-  resetAll: () => set((s) => ({ ...initial(), hydrated: true, user: s.user, auth: s.auth, moneyLoaded: s.moneyLoaded, tasksLoaded: s.tasksLoaded, habitsLoaded: s.habitsLoaded, goalsLoaded: s.goalsLoaded, notesLoaded: s.notesLoaded, wellnessLoaded: s.wellnessLoaded, habits: s.habits, goals: s.goals, tasks: s.tasks, projects: s.projects, notes: s.notes, wellness: s.wellness, wellnessSettings: s.wellnessSettings, transactions: s.transactions, categories: s.categories, accounts: s.accounts, subscriptions: s.subscriptions, recurring: s.recurring, settings: s.settings, activity: s.activity.filter((a) => a.module) })),
+  resetAll: () => set((s) => ({ ...initial(), hydrated: true, user: s.user, auth: s.auth, aiActions: s.aiActions, suggestions: s.suggestions, aiEnabled: s.aiEnabled, moneyLoaded: s.moneyLoaded, tasksLoaded: s.tasksLoaded, habitsLoaded: s.habitsLoaded, goalsLoaded: s.goalsLoaded, notesLoaded: s.notesLoaded, wellnessLoaded: s.wellnessLoaded, habits: s.habits, goals: s.goals, tasks: s.tasks, projects: s.projects, notes: s.notes, wellness: s.wellness, wellnessSettings: s.wellnessSettings, transactions: s.transactions, categories: s.categories, accounts: s.accounts, subscriptions: s.subscriptions, recurring: s.recurring, settings: s.settings, activity: s.activity.filter((a) => a.module) })),
   }); }, {
-  name: 'mitra.store.v6',
+  name: 'mitra.store.v7',
   storage: createJSONStorage(() => localStorage),
   skipHydration: true,
   partialize: (s) => { const { toasts: _t, hydrated: _h, auth: _a, ...rest } = s; return rest as unknown as State; }, // money + profile are cached for offline reading; auth status is always re-checked

@@ -38,6 +38,7 @@ model User {
   habits         Habit[]
   goals          Goal[]
   notes          Note[]
+  aiActions      AiAction[]
   wellness       WellnessEntry[]
   wellnessSettings WellnessSettings?
 }
@@ -454,6 +455,25 @@ model WellnessSettings {
   showOnToday     Boolean @default(true)
   morningReminder String  @default("07:30")
   eveningReminder String  @default("21:00")
+}
+
+/* ---------- AI audit log (append-only: reverting adds a row, never edits the original) ---------- */
+model AiAction {
+  id         String   @id @default(uuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  action     String
+  detail     String   @default("")
+  state      String   @default("Approved by you")
+  tone       String   @default("success")
+  revertible Boolean  @default(false)
+  /// Client-executable undo ops, e.g. [{ "op": "deleteTransaction", "id": "…" }]
+  revert     Json?
+  revertedAt DateTime?
+  revertOfId String?
+  createdAt  DateTime @default(now())
+
+  @@index([userId, createdAt(sort: Desc)])
 }
 
 /* ---------- activity (event log) ---------- */

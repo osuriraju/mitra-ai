@@ -1,6 +1,6 @@
 # mitra-backend
 
-NestJS (Fastify) API for Mitra AI. Covers **auth, profile, Money, Tasks, Habits, Goals, Notes/Journal and Wellness**. AI is the remaining module.
+NestJS (Fastify) API for Mitra AI. Covers **auth, profile, Money, Tasks, Habits, Goals, Notes/Journal, Wellness and the AI assistant**.
 
 ## Run it
 
@@ -29,11 +29,16 @@ src/
   goals/     goals · milestones · progress log (server owns the progress maths)
   notes/     notes + journal entries (journalDate, mood)
   wellness/  daily check-ins (merge-saved per day) + settings
+  ai/        assistant: provider.ts (OpenAI, swappable) · context.service.ts (minimum context, wellness only if shared) · ask / suggestions / journal-draft · append-only action log
   activity/  event log written by every important action (GET /activity)
   common/    Zod pipe, decorators (@Public, @CurrentUser), error filter, money helpers
 prisma/      schema + migrations + dev seed
 logs/        api.<date>.<n>.log (info+) · dev.<date>.<n>.log (debug, dev only) · rotated daily, 14 kept
 ```
+
+## AI
+
+Set `OPENAI_API_KEY` (and optionally `OPENAI_MODEL`, default `gpt-5.6-luna`). Without a key the app runs with AI switched off. The model only ever sees the compact CONTEXT JSON built in `context.service.ts` (ids + current numbers; wellness only when the user enabled sharing). Replies are JSON validated with Zod; every call is logged with token usage. Nothing is applied until the user confirms in the UI, and every applied action is logged with its undo ops.
 
 ## Conventions
 
@@ -70,5 +75,10 @@ logs/        api.<date>.<n>.log (info+) · dev.<date>.<n>.log (debug, dev only) 
 | GET | /wellness/bootstrap | entries keyed by day (120 days) + settings |
 | PUT | /wellness/entries/:date | merge-save one day; `null` clears a field |
 | GET/PATCH | /wellness/settings | |
+| GET | /ai/status | `{ enabled }` — false when OPENAI_API_KEY is empty |
+| POST | /ai/ask | `{ text, history }` → `{ text, proposal?, chart? }`; proposals are validated against real ids, never applied server-side |
+| GET | /ai/suggestions?refresh=1 | up to 5 data-backed actions, cached 6h in Redis |
+| POST | /ai/journal-draft | `{ date }` → `{ text, sources }` |
+| GET/POST | /ai/actions · POST /ai/actions/:id/revert | append-only audit log with client undo ops |
 | GET | /activity?date=&limit= | |
 | GET | /health | db + redis |

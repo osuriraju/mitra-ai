@@ -5,7 +5,7 @@ import type { State } from '@/store';
 import { goalProgress, goalStatus, STATUS_LABEL, spentByCategory, thisMonth, openToday, isOverdue, habitsWeekRate, doneToday } from '@/store/selectors';
 
 export type Proposal =
-  | { kind: 'expense'; title: string; sub: string; amount: number; categoryId: string; merchant: string; accountId: string }
+  | { kind: 'expense'; title: string; sub: string; amount: number; categoryId: string; merchant: string; accountId: string; note?: string }
   | { kind: 'task'; title: string; sub: string; taskTitle: string; due?: string; time?: string; projectId?: string }
   | { kind: 'plan'; title: string; sub: string; goalName: string; target: number; months: number; monthly: number }
   | { kind: 'reschedule'; title: string; sub: string; moves: { id: string; title: string; to: string; label: string }[] };

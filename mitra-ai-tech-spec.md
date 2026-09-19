@@ -20,7 +20,7 @@ One responsive **PWA** (installable on phone, tablet, desktop — no separate ap
 | Queue / cache | **Redis + BullMQ** | Reminders, recurring items, nightly rollups, AI jobs |
 | Files | **S3-compatible storage** (AWS S3, or self-hosted MinIO on the same server) | Receipts, attachments, exports |
 | Auth | **Email/username + password** only — `@nestjs/passport` (local strategy), Argon2 hashing, sessions in Redis, password reset by email | Simple, fully owned; no social logins |
-| AI | **Claude** via `@anthropic-ai/sdk`, behind an `AiService` interface | Swap providers with one line if ever needed |
+| AI | **OpenAI `gpt-5.6-luna`** behind an `AiProvider` interface (`apps/api/src/ai/provider.ts`) | Swap providers with one class if ever needed |
 | Push / email | **Web Push (VAPID)** · **Nodemailer** over SMTP | Reminders, password reset, digests |
 | Logging | **In-app file logs** — `logs/api.log` and `logs/dev.log` via **nestjs-pino** with daily rotation; no cloud logging services | Everything stays on our server; grep-able |
 | Repo | **pnpm monorepo**: `apps/web` (Next.js), `apps/api` (Nest), `apps/worker`, `packages/ui`, `packages/domain`, `packages/ai` | Shared code, one CI |

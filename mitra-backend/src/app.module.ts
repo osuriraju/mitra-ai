@@ -5,6 +5,7 @@ import { ScheduleModule } from '@nestjs/schedule';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { LoggerModule } from 'nestjs-pino';
 import { ActivityModule } from './activity/activity.module';
+import { AiModule } from './ai/ai.module';
 import { AuthModule } from './auth/auth.module';
 import { SessionModule } from './auth/session.module';
 import { Env, validateEnv } from './config/env';
@@ -44,7 +45,7 @@ import { UsersModule } from './users/users.module';
     }),
     ScheduleModule.forRoot(),
     ThrottlerModule.forRoot([{ ttl: 60_000, limit: 300 }]),
-    PrismaModule, RedisModule, SessionModule, ActivityModule, UsersModule, MoneyModule, TasksModule, HabitsModule, GoalsModule, NotesModule, WellnessModule, AuthModule,
+    PrismaModule, RedisModule, SessionModule, ActivityModule, UsersModule, MoneyModule, TasksModule, HabitsModule, GoalsModule, NotesModule, WellnessModule, AiModule, AuthModule,
   ],
   controllers: [HealthController],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],

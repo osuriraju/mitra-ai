@@ -16,6 +16,10 @@ const schema = z.object({
   SMTP_PASS: z.string().optional().default(''),
   MAIL_FROM: z.string().default('Mitra AI <no-reply@mitra.local>'),
   LOG_DIR: z.string().default('logs'),
+  // AI (optional — the app works fully with AI switched off)
+  OPENAI_API_KEY: z.string().optional().default(''),
+  OPENAI_MODEL: z.string().default('gpt-5.6-luna'),
+  OPENAI_BASE_URL: z.string().url().default('https://api.openai.com/v1'),
 });
 
 export type Env = z.infer<typeof schema>;

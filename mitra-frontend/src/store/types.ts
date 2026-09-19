@@ -39,8 +39,14 @@ export type Note = { id: string; title: string; body: string; folder: string; ta
 export type Notification = { id: string; t: string; s: string; when: string; icon: string; tone: string; read: boolean; goto?: string };
 
 export type AiMessage = { id: string; who: 'user' | 'ai'; text: string; preview?: { kind: 'expense' | 'task' | 'plan' | 'reschedule'; title: string; sub: string; payload?: unknown; applied?: boolean } ; chart?: number[] };
-export type AiAction = { id: string; when: string; action: string; detail: string; state: string; tone: string; reverted?: boolean; revertible: boolean };
-export type Suggestion = { id: string; ic: string; t: string; p: string; src: string; tone: string; state: 'open' | 'applied' | 'dismissed' };
+/** Client-executable undo steps stored with every AI action so the log can revert it later. */
+export type RevertOp = { op: 'deleteTransaction' | 'deleteTask' | 'deleteGoal' | 'deleteHabit' | 'deleteRecurring'; id: string } | { op: 'updateTask' | 'updateHabit' | 'updateGoal' | 'updateCategory' | 'updateRecurring'; id: string; patch: Record<string, unknown> };
+export type AiAction = { id: string; when: string; at?: string; action: string; detail: string; state: string; tone: string; reverted?: boolean; revertible: boolean; revert?: RevertOp[] };
+export type SuggestionAction =
+  | { kind: 'set_habit_reminder'; habitId: string; time: string } | { kind: 'add_recurring'; name: string; amount: number; day: number; categoryId?: string | null }
+  | { kind: 'add_subtasks'; taskId: string; titles: string[] } | { kind: 'triage_inbox'; moves: { taskId: string; projectId?: string | null; due?: string | null }[] }
+  | { kind: 'pause_goal'; goalId: string } | { kind: 'set_budget'; categoryId: string; amount: number } | { kind: 'add_task'; title: string; due?: string | null };
+export type Suggestion = { id: string; ic: string; t: string; p: string; src: string; tone: string; state: 'open' | 'applied' | 'dismissed'; preview?: string; action?: SuggestionAction };
 
 export type Settings = {
   reduceMotion: boolean; compact: boolean; modules: { money: boolean; wellness: boolean; ai: boolean };
