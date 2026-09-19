@@ -1,0 +1,15 @@
+{
+  "name": "mitra-ai",
+  "private": true,
+  "packageManager": "pnpm@9.6.0",
+  "scripts": {
+    "dev": "pnpm -r --parallel dev",
+    "dev:web": "pnpm --filter mitra-frontend dev",
+    "dev:api": "pnpm --filter mitra-backend dev",
+    "build": "pnpm -r build",
+    "lint": "pnpm -r lint",
+    "typecheck": "pnpm -r typecheck",
+    "db:migrate": "pnpm --filter mitra-backend prisma:migrate",
+    "db:seed": "pnpm --filter mitra-backend db:seed"
+  }
+}
