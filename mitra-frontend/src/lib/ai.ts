@@ -22,12 +22,17 @@ export function ask(input: string, s: State): AiReply {
   // capture: expense
   if (/^(spent|paid|bought|spend)\b/.test(l) || (/\b(₹|rs)\s*\d/.test(l) && /\bon\b|\bfor\b|\bat\b/.test(l))) {
     const amount = parseAmount(t); const on = t.match(/\b(?:on|for|at)\s+(.+?)(?:\s+(?:today|yesterday|tomorrow|via|using|from|with)\b|$)/i)?.[1] || 'expense';
-    const categoryId = CAT_WORDS.find(([re]) => re.test(on))?.[1] || CAT_WORDS.find(([re]) => re.test(t))?.[1] || cats.find((c) => on.toLowerCase().includes(c.name.toLowerCase().split(' ')[0]))?.id || 'shopping';
-    const cat = cats.find((c) => c.id === categoryId)!; const prev = s.transactions.filter((x) => x.categoryId === categoryId && x.merchant).map((x) => x.merchant); const atM = t.match(/\b(?:at|from|@)\s+([A-Z][\w&'.-]*(?:\s+[A-Z][\w&'.-]*)*)/); const brand = on.match(/swiggy|zomato|uber|ola|amazon|blinkit|netflix|starbucks|flipkart|myntra|zepto|bigbasket/i);
+    // CAT_WORDS yields a slug; resolve it to this user's category id (system categories carry slugs, ids differ per user).
+    const bySlug = (slug?: string) => (slug ? cats.find((c) => c.slug === slug) : undefined);
+    const cat = bySlug(CAT_WORDS.find(([re]) => re.test(on))?.[1]) || bySlug(CAT_WORDS.find(([re]) => re.test(t))?.[1]) || cats.find((c) => on.toLowerCase().includes(c.name.toLowerCase().split(' ')[0])) || bySlug('shopping') || cats.find((c) => c.kind === 'expense') || cats[0];
+    if (!cat) return { text: 'I can’t log expenses until your categories are set up — head to Money first.' };
+    const categoryId = cat.id; const prev = s.transactions.filter((x) => x.categoryId === categoryId && x.merchant).map((x) => x.merchant); const atM = t.match(/\b(?:at|from|@)\s+([A-Z][\w&'.-]*(?:\s+[A-Z][\w&'.-]*)*)/); const brand = on.match(/swiggy|zomato|uber|ola|amazon|blinkit|netflix|starbucks|flipkart|myntra|zepto|bigbasket/i);
     const generic = CAT_WORDS.some(([re]) => re.test(on.split(/\s+at\s+/i)[0]));
     const merchant = atM ? atM[1].trim() : brand ? cap(brand[0].toLowerCase()) : generic && prev[0] ? prev[0] : cap(on.split(/\s+at\s+/i)[0].replace(/^(a|an|the)\s+/i, ''));
-    const accountId = s.transactions.find((x) => x.categoryId === categoryId)?.accountId || s.accounts[0].id; const acc = s.accounts.find((a) => a.id === accountId)!;
+    const acc = s.accounts.find((a) => a.id === s.transactions.find((x) => x.categoryId === categoryId)?.accountId) || s.accounts[0];
     if (!amount) return { text: `How much was it? Say something like “Spent ₹450 on ${on}”.` };
+    if (!acc) return { text: 'Add an account in Money first, then I can log this expense.' };
+    const accountId = acc.id;
     return { text: 'Got it — here’s what I’ll save:', proposal: { kind: 'expense', title: `${merchant} · ${inr(amount)}`, sub: `${cat.emoji} ${cat.name} · Today ${fmtTime(new Date().toTimeString().slice(0, 5))} · ${acc.name} ${acc.mask}${prev.length ? ` · merchant guessed from your last ${Math.min(4, prev.length)} ${cat.name.toLowerCase()} entries` : ''}`, amount, categoryId, merchant, accountId } };
   }
   // capture: task / reminder
