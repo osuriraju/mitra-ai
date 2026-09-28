@@ -6,6 +6,19 @@ const API_URL = process.env.API_URL || "http://localhost:4000";
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
+  /* The service worker must never be served stale, or users get stuck on an old version. */
+  async headers() {
+    return [
+      {
+        source: "/sw.js",
+        headers: [
+          { key: "Cache-Control", value: "no-cache, no-store, must-revalidate" },
+          { key: "Service-Worker-Allowed", value: "/" },
+        ],
+      },
+      { source: "/manifest.webmanifest", headers: [{ key: "Content-Type", value: "application/manifest+json" }] },
+    ];
+  },
   async rewrites() {
     return [{ source: "/api/:path*", destination: `${API_URL}/api/:path*` }];
   },
