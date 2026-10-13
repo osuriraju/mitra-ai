@@ -14,6 +14,12 @@ kotlin {
             implementation(libs.koin.compose.vm)
             implementation(libs.serialization.json)
         }
-        commonTest.dependencies { implementation(project(":shared:testing")) }
+        commonTest.dependencies {
+            implementation(project(":shared:testing"))
+            implementation(libs.ktor.mock)
+            implementation(libs.koin.core)
+        }
+        getByName("androidHostTest").dependencies { implementation(libs.sqldelight.sqlite) }
+        iosTest.dependencies { implementation(libs.sqldelight.native) }
     }
 }
