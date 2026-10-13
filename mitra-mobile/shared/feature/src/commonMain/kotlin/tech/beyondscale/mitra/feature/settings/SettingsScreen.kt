@@ -49,7 +49,7 @@ fun SettingsScreen(state: SettingsUiState, onAction: (SettingsAction) -> Unit) {
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(MitraDimens.pad),
         verticalArrangement = Arrangement.spacedBy(MitraDimens.gap),
     ) {
-        MitraCard {
+        MitraCard(Modifier.fillMaxWidth()) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Avatar(state.initials, size = 44.dp)
                 Column(Modifier.padding(start = 12.dp)) {
