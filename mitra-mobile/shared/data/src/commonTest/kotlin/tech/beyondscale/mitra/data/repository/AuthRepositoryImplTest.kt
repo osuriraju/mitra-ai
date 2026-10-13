@@ -43,6 +43,8 @@ import kotlin.test.assertIs
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlin.time.Instant
+import kotlin.time.TimeSource
+import kotlinx.coroutines.awaitCancellation
 
 class AuthRepositoryImplTest {
     private val clock = FixedClock(Instant.parse("2026-10-13T04:30:00Z"))
@@ -183,5 +185,17 @@ class AuthRepositoryImplTest {
         assertEquals(SessionState.SignedOut, repo.session.value)
         assertNull(db.userQueries.selectCurrent().executeAsOneOrNull())
         assertNull(db.prefQueries.get(PrefKeys.LAST_USER_ID).executeAsOneOrNull())
+    }
+
+    @Test fun logoutDoesNotWaitOnAHangingNetwork() = runTest {
+        seedCachedUser()
+        server.routes["POST /api/auth/logout"] = { awaitCancellation() } // captive portal: the request never answers
+        val repo = repo()
+        repo.restore(); runCurrent()
+        val started = TimeSource.Monotonic.markNow()
+        repo.logout(); runCurrent()
+        assertTrue(started.elapsedNow() < 10.seconds, "logout took ${started.elapsedNow()}")
+        assertEquals(SessionState.SignedOut, repo.session.value)
+        assertNull(db.userQueries.selectCurrent().executeAsOneOrNull())
     }
 }

@@ -19,6 +19,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -130,7 +131,8 @@ class AuthRepositoryImpl(
     override suspend fun logout() {
         lock.withLock { epoch++ } // from here on, in-flight refresh/login results are dropped
         refreshJob?.cancel()
-        api.send(HttpMethod.Post, "auth/logout", JsonObject(emptyMap())) // best effort; offline is fine
+        // Best effort, and bounded: offline or a captive network must not hold sign-out for the full request timeout.
+        withTimeoutOrNull(LOGOUT_TIMEOUT_MS) { api.send(HttpMethod.Post, "auth/logout", JsonObject(emptyMap())) }
         lock.withLock {
             epoch++
             cookies.clear()
@@ -163,4 +165,6 @@ class AuthRepositoryImpl(
         auth.value = Auth.SignedIn
         Outcome.Ok(stored.toDomain(api.json))
     }
+
+    private companion object { const val LOGOUT_TIMEOUT_MS = 4_000L }
 }
