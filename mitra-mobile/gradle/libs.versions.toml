@@ -1,0 +1,55 @@
+[versions]
+kotlin = "2.4.21"
+agp = "9.4.1"
+compose-mp = "1.12.1"
+material3 = "1.9.0"
+ktor = "3.6.0"
+sqldelight = "2.4.1"
+koin = "4.2.2"
+coroutines = "1.11.0"
+serialization = "1.11.0"
+datetime = "0.8.0"
+nav = "2.9.2"
+lifecycle = "2.11.0"
+activity = "1.13.0"
+work = "2.12.0"
+turbine = "1.2.1"
+
+[libraries]
+gradle-kotlin = { module = "org.jetbrains.kotlin:kotlin-gradle-plugin", version.ref = "kotlin" }
+gradle-agp = { module = "com.android.tools.build:gradle", version.ref = "agp" }
+ktor-core = { module = "io.ktor:ktor-client-core", version.ref = "ktor" }
+ktor-okhttp = { module = "io.ktor:ktor-client-okhttp", version.ref = "ktor" }
+ktor-darwin = { module = "io.ktor:ktor-client-darwin", version.ref = "ktor" }
+ktor-mock = { module = "io.ktor:ktor-client-mock", version.ref = "ktor" }
+sqldelight-android = { module = "app.cash.sqldelight:android-driver", version.ref = "sqldelight" }
+sqldelight-native = { module = "app.cash.sqldelight:native-driver", version.ref = "sqldelight" }
+sqldelight-sqlite = { module = "app.cash.sqldelight:sqlite-driver", version.ref = "sqldelight" }
+sqldelight-coroutines = { module = "app.cash.sqldelight:coroutines-extensions", version.ref = "sqldelight" }
+koin-core = { module = "io.insert-koin:koin-core", version.ref = "koin" }
+koin-android = { module = "io.insert-koin:koin-android", version.ref = "koin" }
+koin-compose-vm = { module = "io.insert-koin:koin-compose-viewmodel", version.ref = "koin" }
+coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "coroutines" }
+coroutines-test = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-test", version.ref = "coroutines" }
+serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version.ref = "serialization" }
+datetime = { module = "org.jetbrains.kotlinx:kotlinx-datetime", version.ref = "datetime" }
+nav-compose = { module = "org.jetbrains.androidx.navigation:navigation-compose", version.ref = "nav" }
+lifecycle-vm-compose = { module = "org.jetbrains.androidx.lifecycle:lifecycle-viewmodel-compose", version.ref = "lifecycle" }
+lifecycle-runtime-compose = { module = "org.jetbrains.androidx.lifecycle:lifecycle-runtime-compose", version.ref = "lifecycle" }
+activity-compose = { module = "androidx.activity:activity-compose", version.ref = "activity" }
+work = { module = "androidx.work:work-runtime-ktx", version.ref = "work" }
+turbine = { module = "app.cash.turbine:turbine", version.ref = "turbine" }
+cmp-runtime = { module = "org.jetbrains.compose.runtime:runtime", version.ref = "compose-mp" }
+cmp-foundation = { module = "org.jetbrains.compose.foundation:foundation", version.ref = "compose-mp" }
+cmp-ui = { module = "org.jetbrains.compose.ui:ui", version.ref = "compose-mp" }
+cmp-resources = { module = "org.jetbrains.compose.components:components-resources", version.ref = "compose-mp" }
+cmp-material3 = { module = "org.jetbrains.compose.material3:material3", version.ref = "material3" }
+
+[plugins]
+kotlin-multiplatform = { id = "org.jetbrains.kotlin.multiplatform", version.ref = "kotlin" }
+kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
+compose-compiler = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
+compose-mp = { id = "org.jetbrains.compose", version.ref = "compose-mp" }
+android-application = { id = "com.android.application", version.ref = "agp" }
+android-kmp-library = { id = "com.android.kotlin.multiplatform.library", version.ref = "agp" }
+sqldelight = { id = "app.cash.sqldelight", version.ref = "sqldelight" }
