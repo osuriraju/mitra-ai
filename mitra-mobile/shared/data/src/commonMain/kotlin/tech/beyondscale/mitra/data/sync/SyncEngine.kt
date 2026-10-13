@@ -3,8 +3,10 @@ package tech.beyondscale.mitra.data.sync
 import app.cash.sqldelight.coroutines.asFlow
 import app.cash.sqldelight.coroutines.mapToOne
 import io.ktor.http.HttpMethod
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.IO
@@ -60,9 +62,14 @@ class SyncEngine(
     override val pendingCount: Flow<Long> = db.outboxQueries.count().asFlow().mapToOne(io)
 
     init {
-        scope.launch { requests.debounce(debounceMs).collect { drain() } }
+        scope.launch(start = CoroutineStart.UNDISPATCHED) {
+            requests.debounce(debounceMs).collect {
+                try { drain() } catch (e: CancellationException) { throw e } catch (_: Exception) { }
+            }
+        }
     }
 
+    /** Handlers must be registered at DI setup, before the first drain; the map is not synchronised. */
     fun register(entity: String, handler: SyncHandler) { handlers[entity] = handler }
 
     override fun requestSync() { requests.tryEmit(Unit) }
@@ -72,21 +79,34 @@ class SyncEngine(
     private suspend fun drainLocked(): Result {
         var result: Result? = null
         while (result == null) {
-            val entry = withContext(io) { db.outboxQueries.selectNext().executeAsOneOrNull() }
+            // Claim atomically so a concurrent enqueue can't merge into a row after we read its body.
+            val claimed = withContext(io) {
+                db.transactionWithResult {
+                    val next = db.outboxQueries.selectNext().executeAsOneOrNull()
+                    next?.also { db.outboxQueries.markInFlight(it.id) } to db.outboxQueries.count().executeAsOne()
+                }
+            }
+            val entry = claimed.first
+            val pending = claimed.second
             if (entry == null) {
                 _status.value = SyncStatus.Idle
                 result = Result.Drained
                 continue
             }
-            val pending = withContext(io) { db.outboxQueries.count().executeAsOne() }
             _status.value = SyncStatus.Syncing(pending)
-            withContext(io) { db.outboxQueries.markInFlight(entry.id) }
 
-            val body = entry.body?.let { api.json.parseToJsonElement(it) }
+            val body = try {
+                entry.body?.let { api.json.parseToJsonElement(it) }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                reject(entry.id, entry.entity, AppError.Unknown(e))
+                continue
+            }
             when (val r = api.send(HttpMethod.parse(entry.method), entry.path, body)) {
                 is Outcome.Ok -> {
                     withContext(io) { db.outboxQueries.delete(entry.id) }
-                    handlers[entry.entity]?.onSuccess(r.value)
+                    safely { handlers[entry.entity]?.onSuccess(r.value) }
                 }
                 is Outcome.Err -> {
                     val e = r.error
@@ -105,13 +125,22 @@ class SyncEngine(
                             else -> Result.Retry
                         }
                     } else {
-                        withContext(io) { db.outboxQueries.delete(entry.id) }
-                        handlers[entry.entity]?.onRejected(e)
-                        _messages.tryEmit("Couldn't save · ${e.message}")
+                        reject(entry.id, entry.entity, e)
                     }
                 }
             }
         }
         return result
+    }
+
+    private suspend fun reject(id: String, entity: String, error: AppError) {
+        withContext(io) { db.outboxQueries.delete(id) }
+        safely { handlers[entity]?.onRejected(error) }
+        _messages.tryEmit("Couldn't save · ${error.message}")
+    }
+
+    /** A misbehaving handler must not break the queue; the row outcome already applied stands. */
+    private suspend fun safely(block: suspend () -> Unit) {
+        try { block() } catch (e: CancellationException) { throw e } catch (_: Exception) { }
     }
 }

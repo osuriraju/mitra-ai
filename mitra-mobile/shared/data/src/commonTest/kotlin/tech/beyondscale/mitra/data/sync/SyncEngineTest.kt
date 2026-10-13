@@ -114,10 +114,52 @@ class SyncEngineTest {
         enqueue("a")
         repeat(3) { engine.requestSync() }
         advanceTimeBy(499); runCurrent()
+        // Deterministic: markInFlight runs on the test dispatcher before Ktor switches threads.
+        pending().single().let { assertEquals(0L, it.attempts); assertEquals(0L, it.inFlight) }
         assertEquals(emptyList(), server.log)
         advanceTimeBy(2); runCurrent()
         // Ktor's engine hops to a real dispatcher, so wait in real time for the request to land.
         withContext(Dispatchers.Default) { withTimeout(5_000) { while (server.log.isEmpty()) delay(10) } }
         assertEquals(listOf("PATCH /api/a"), server.log)
+        withContext(Dispatchers.Default) { withTimeout(5_000) { while (pending().isNotEmpty()) delay(10) } }
+    }
+
+    @Test fun enqueueDuringSendIsNotLost() = runTest {
+        val bodies = mutableListOf<String>()
+        server.routes["PATCH /api/s"] = { req ->
+            bodies += String(req.body.toByteArray())
+            if (bodies.size == 1) writer.enqueue("t", "PATCH", "s", buildJsonObject { put("v", "new") }, "k")
+            json("{}")
+        }
+        writer.enqueue("t", "PATCH", "s", buildJsonObject { put("v", "old") }, "k")
+        assertEquals(SyncEngine.Result.Drained, engine().drain())
+        assertEquals(listOf("""{"v":"old"}""", """{"v":"new"}"""), bodies)
+        assertEquals(0, pending().size)
+    }
+
+    @Test fun throwingHandlerDoesNotBreakDrain() = runTest {
+        server.routes["PATCH /api/a"] = { json("{}") }
+        server.routes["PATCH /api/b"] = { json("{}") }
+        val engine = SyncEngine(api, db, { retries++ }, backgroundScope, UnconfinedTestDispatcher(testScheduler))
+        engine.register("t", object : SyncHandler {
+            override suspend fun onSuccess(response: JsonElement?) { error("boom") }
+            override suspend fun onRejected(error: AppError) {}
+        })
+        enqueue("a")
+        assertEquals(SyncEngine.Result.Drained, engine.drain())
+        enqueue("b")
+        assertEquals(SyncEngine.Result.Drained, engine.drain())
+        assertEquals(listOf("PATCH /api/a", "PATCH /api/b"), server.log)
+        assertEquals(0, pending().size)
+    }
+
+    @Test fun unparseableBodyIsRejectedAndQueueContinues() = runTest {
+        server.routes["PATCH /api/b"] = { json("{}") }
+        db.outboxQueries.insert("bad", "t", "PATCH", "a", "{bad", null, 0L)
+        enqueue("b")
+        assertEquals(SyncEngine.Result.Drained, engine().drain())
+        assertEquals(1, rejections.size)
+        assertEquals(listOf("PATCH /api/b"), server.log)
+        assertEquals(0, pending().size)
     }
 }

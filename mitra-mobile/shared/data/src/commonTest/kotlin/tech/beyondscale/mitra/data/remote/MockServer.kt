@@ -8,6 +8,8 @@ import io.ktor.client.request.HttpResponseData
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.headersOf
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.update
 
 const val TEST_BASE = "http://test.local/api/"
 
@@ -22,11 +24,13 @@ fun errorJson(code: String, message: String) = """{"error":{"code":"$code","mess
 /** Routes requests by "METHOD /path"; `offline = true` makes every call throw like a dead network. */
 class MockServer {
     var offline = false
-    val requests = mutableListOf<HttpRequestData>()
+    private val recorded = MutableStateFlow<List<HttpRequestData>>(emptyList())
+    /** Thread-safe snapshot (Ktor's engine records from its own thread). */
+    val requests: List<HttpRequestData> get() = recorded.value
     val routes = mutableMapOf<String, suspend MockRequestHandleScope.(HttpRequestData) -> HttpResponseData>()
     val engine = MockEngine { req ->
         if (offline) throw Exception("network down")
-        requests += req
+        recorded.update { it + req }
         val handler = routes["${req.method.value} ${req.url.encodedPath}"]
         handler?.invoke(this, req) ?: respond("", HttpStatusCode.NotFound)
     }

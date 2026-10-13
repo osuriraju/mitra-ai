@@ -12,6 +12,8 @@ class OutboxWriter(private val db: MitraDb, private val json: Json, private val 
      * Queues a server write. Call inside the same `db.transaction {}` as the local change it mirrors.
      * With a [coalesceKey], a newer patch is shallow-merged into a queued (not in-flight) one —
      * the server merges settings/patches shallowly too, so the result is identical.
+     * Use a key only for independent last-write-wins resources; never for writes whose order or
+     * count matters (creates, deletes, actions).
      */
     fun enqueue(entity: String, method: String, path: String, body: JsonObject?, coalesceKey: String? = null) {
         if (coalesceKey != null) {
