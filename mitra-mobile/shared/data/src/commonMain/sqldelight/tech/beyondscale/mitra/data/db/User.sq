@@ -1,0 +1,14 @@
+-- The signed-in user exactly as the server returned it (JSON of UserDto).
+CREATE TABLE cached_user (
+  id TEXT NOT NULL PRIMARY KEY,
+  json TEXT NOT NULL
+);
+
+selectCurrent:
+SELECT json FROM cached_user LIMIT 1;
+
+upsert:
+INSERT OR REPLACE INTO cached_user(id, json) VALUES (?, ?);
+
+deleteAll:
+DELETE FROM cached_user;

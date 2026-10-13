@@ -1,0 +1,14 @@
+-- Device-local key/value preferences (theme, last signed-in user id).
+CREATE TABLE pref (
+  key TEXT NOT NULL PRIMARY KEY,
+  value TEXT NOT NULL
+);
+
+get:
+SELECT value FROM pref WHERE key = ?;
+
+put:
+INSERT OR REPLACE INTO pref(key, value) VALUES (?, ?);
+
+remove:
+DELETE FROM pref WHERE key = ?;

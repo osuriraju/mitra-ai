@@ -1,0 +1,47 @@
+-- Local writes waiting to reach the server, sent strictly in `seq` order.
+CREATE TABLE outbox (
+  seq INTEGER PRIMARY KEY AUTOINCREMENT,
+  id TEXT NOT NULL UNIQUE,
+  entity TEXT NOT NULL,
+  method TEXT NOT NULL,
+  path TEXT NOT NULL,
+  body TEXT,
+  coalesceKey TEXT,
+  inFlight INTEGER NOT NULL DEFAULT 0,
+  attempts INTEGER NOT NULL DEFAULT 0,
+  createdAt INTEGER NOT NULL
+);
+
+insert:
+INSERT INTO outbox(id, entity, method, path, body, coalesceKey, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?);
+
+selectNext:
+SELECT * FROM outbox ORDER BY seq LIMIT 1;
+
+selectAll:
+SELECT * FROM outbox ORDER BY seq;
+
+-- Only rows not currently being sent can absorb a newer patch.
+pendingByCoalesceKey:
+SELECT * FROM outbox WHERE coalesceKey = ? AND inFlight = 0 ORDER BY seq DESC LIMIT 1;
+
+updateBody:
+UPDATE outbox SET body = ? WHERE id = ?;
+
+markInFlight:
+UPDATE outbox SET inFlight = 1, attempts = attempts + 1 WHERE id = ?;
+
+clearInFlight:
+UPDATE outbox SET inFlight = 0 WHERE id = ?;
+
+resetInFlight:
+UPDATE outbox SET inFlight = 0;
+
+delete:
+DELETE FROM outbox WHERE id = ?;
+
+count:
+SELECT COUNT(*) FROM outbox;
+
+deleteAll:
+DELETE FROM outbox;
