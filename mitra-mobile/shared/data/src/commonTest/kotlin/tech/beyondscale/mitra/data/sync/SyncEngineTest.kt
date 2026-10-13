@@ -75,6 +75,14 @@ class SyncEngineTest {
         assertEquals(1, retries)
     }
 
+    @Test fun workerDrivenDrainLeavesRetryToTheWorker() = runTest {
+        enqueue("a"); server.offline = true
+        val engine = engine()
+        assertEquals(SyncEngine.Result.Offline, engine.drain(scheduleRetryOnFailure = false))
+        assertEquals(1, pending().size)
+        assertEquals(0, retries)
+    }
+
     @Test fun serverErrorRetriesLater() = runTest {
         server.routes["PATCH /api/a"] = { json(errorJson("INTERNAL", "boom"), HttpStatusCode.InternalServerError) }
         enqueue("a")

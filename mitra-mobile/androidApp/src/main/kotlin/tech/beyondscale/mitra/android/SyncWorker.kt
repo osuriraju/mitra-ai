@@ -19,7 +19,8 @@ import tech.beyondscale.mitra.data.sync.SyncScheduler
 class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params), KoinComponent {
     private val engine: SyncEngine by inject()
 
-    override suspend fun doWork(): Result = when (engine.drain()) {
+    // WorkManager's own retry/backoff reschedules this job; asking the engine to schedule too would chain another worker.
+    override suspend fun doWork(): Result = when (engine.drain(scheduleRetryOnFailure = false)) {
         SyncEngine.Result.Drained, SyncEngine.Result.SignedOut -> Result.success()
         SyncEngine.Result.Offline, SyncEngine.Result.Retry -> Result.retry()
     }

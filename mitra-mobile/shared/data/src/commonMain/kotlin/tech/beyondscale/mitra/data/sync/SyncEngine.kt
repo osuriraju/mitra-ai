@@ -74,9 +74,13 @@ class SyncEngine(
 
     override fun requestSync() { requests.tryEmit(Unit) }
 
-    suspend fun drain(): Result = mutex.withLock { drainLocked() }
+    /**
+     * Sends queued rows until the outbox is empty or a send fails. Pass [scheduleRetryOnFailure] = false when the
+     * caller retries on its own (the WorkManager job returns `Result.retry()`), so no extra job is chained.
+     */
+    suspend fun drain(scheduleRetryOnFailure: Boolean = true): Result = mutex.withLock { drainLocked(scheduleRetryOnFailure) }
 
-    private suspend fun drainLocked(): Result {
+    private suspend fun drainLocked(scheduleRetryOnFailure: Boolean): Result {
         var result: Result? = null
         while (result == null) {
             // Claim atomically so a concurrent enqueue can't merge into a row after we read its body.
@@ -113,7 +117,7 @@ class SyncEngine(
                     val transient = e is AppError.Offline || (e is AppError.Server && (e.status >= 500 || e.status == 429))
                     if (transient || e is AppError.Unauthenticated) {
                         withContext(io) { db.outboxQueries.clearInFlight(entry.id) }
-                        if (transient) scheduler.scheduleRetry()
+                        if (transient && scheduleRetryOnFailure) scheduler.scheduleRetry()
                         _status.value = when (e) {
                             is AppError.Offline -> SyncStatus.Offline(pending)
                             is AppError.Unauthenticated -> SyncStatus.Idle
