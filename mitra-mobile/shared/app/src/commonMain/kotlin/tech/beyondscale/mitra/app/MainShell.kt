@@ -3,6 +3,8 @@ package tech.beyondscale.mitra.app
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -59,13 +61,14 @@ import tech.beyondscale.mitra.designsystem.components.MitraTopBar
 import tech.beyondscale.mitra.designsystem.components.SyncPill
 import tech.beyondscale.mitra.designsystem.icons.MitraIcons
 import tech.beyondscale.mitra.designsystem.theme.Mitra
+import tech.beyondscale.mitra.domain.model.Modules
 import tech.beyondscale.mitra.domain.model.SyncStatus
 import tech.beyondscale.mitra.domain.model.User
 import tech.beyondscale.mitra.feature.common.ComingSoonScreen
 import tech.beyondscale.mitra.feature.settings.SettingsRoute
 import tech.beyondscale.mitra.feature.today.TodayRoute
 
-private data class Dest(val label: String, val icon: ImageVector, val route: Any)
+internal data class Dest(val label: String, val icon: ImageVector, val route: Any)
 
 private val TODAY = Dest("Today", MitraIcons.Sun, TodayDest)
 private val TASKS = Dest("Tasks", MitraIcons.CheckSquare, TasksDest)
@@ -76,6 +79,21 @@ private val WELLNESS = Dest("Wellness", MitraIcons.Heart, WellnessDest)
 private val NOTES = Dest("Notes", MitraIcons.Note, NotesDest)
 private val AI = Dest("AI", MitraIcons.Sparkles, AiDest)
 private val SETTINGS = Dest("Settings", MitraIcons.Settings, SettingsDest)
+private val MORE = Dest("More", MitraIcons.Grid, Unit)
+
+/** Bottom-bar tabs and More-sheet entries allowed for the enabled [modules]. */
+internal fun destinationsFor(modules: Modules): Pair<List<Dest>, List<Dest>> {
+    val tabs = listOf(TODAY, TASKS, if (modules.money) MONEY else HABITS)
+    val more = buildList {
+        if (modules.money) add(HABITS)
+        add(GOALS)
+        if (modules.wellness) add(WELLNESS)
+        add(NOTES)
+        if (modules.ai) add(AI)
+        add(SETTINGS)
+    }
+    return tabs to more
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -88,15 +106,7 @@ internal fun MainShell(user: User, sync: SyncStatus, messages: Flow<String>) {
 
     // Bottom bar: Today · Tasks · ＋ · Money (Habits if Money is off) · More
     val modules = user.settings.modules
-    val tabs = listOf(TODAY, TASKS, if (modules.money) MONEY else HABITS)
-    val more = buildList {
-        if (modules.money) add(HABITS)
-        add(GOALS)
-        if (modules.wellness) add(WELLNESS)
-        add(NOTES)
-        if (modules.ai) add(AI)
-        add(SETTINGS)
-    }
+    val (tabs, more) = remember(modules) { destinationsFor(modules) }
     val entry by nav.currentBackStackEntryAsState()
     val current = (tabs + more).firstOrNull { d -> entry?.destination?.hierarchy?.any { it.hasRoute(d.route::class) } == true }
 
@@ -104,6 +114,11 @@ internal fun MainShell(user: User, sync: SyncStatus, messages: Flow<String>) {
         popUpTo(nav.graph.findStartDestination().id) { saveState = true }
         launchSingleTop = true
         restoreState = true
+    }
+
+    // A module switched off while its screen is open would strand the user: fall back to Today.
+    LaunchedEffect(modules, current, entry) {
+        if (entry != null && current == null && entry?.destination?.route != null) go(TodayDest)
     }
 
     Scaffold(
@@ -157,7 +172,7 @@ private fun RowScope.MoreTile(d: Dest, selected: Boolean, onClick: () -> Unit) {
     val c = Mitra.colors
     Column(
         Modifier.weight(1f).clip(RoundedCornerShape(12.dp)).background(if (selected) c.accentSoft else c.surface2)
-            .clickable(role = Role.Button, onClick = onClick).padding(vertical = 16.dp),
+            .selectable(selected = selected, role = Role.Button, onClick = onClick).padding(vertical = 16.dp),
         horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         Icon(d.icon, contentDescription = null, tint = if (selected) c.accent else c.text)
@@ -170,7 +185,7 @@ private fun BottomBar(tabs: List<Dest>, current: Dest?, moreSelected: Boolean, o
     val c = Mitra.colors
     Column(Modifier.fillMaxWidth().background(c.navBg)) {
         HorizontalDivider(color = c.border)
-        Row(Modifier.fillMaxWidth().navigationBarsPadding().height(64.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.fillMaxWidth().navigationBarsPadding().height(64.dp).selectableGroup(), verticalAlignment = Alignment.CenterVertically) {
             TabItem(tabs[0], current == tabs[0]) { onSelect(tabs[0]) }
             TabItem(tabs[1], current == tabs[1]) { onSelect(tabs[1]) }
             Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
@@ -181,7 +196,7 @@ private fun BottomBar(tabs: List<Dest>, current: Dest?, moreSelected: Boolean, o
                 ) { Icon(MitraIcons.Plus, contentDescription = "Quick add", tint = c.onAccent, modifier = Modifier.size(26.dp)) }
             }
             TabItem(tabs[2], current == tabs[2]) { onSelect(tabs[2]) }
-            TabItem(Dest("More", MitraIcons.Grid, Unit), moreSelected, onMore)
+            TabItem(MORE, moreSelected, onMore)
         }
     }
 }
@@ -190,7 +205,7 @@ private fun BottomBar(tabs: List<Dest>, current: Dest?, moreSelected: Boolean, o
 private fun RowScope.TabItem(d: Dest, selected: Boolean, onClick: () -> Unit) {
     val color = if (selected) Mitra.colors.accent else Mitra.colors.muted
     Column(
-        Modifier.weight(1f).fillMaxHeight().clickable(role = Role.Tab, onClick = onClick),
+        Modifier.weight(1f).fillMaxHeight().selectable(selected = selected, role = Role.Tab, onClick = onClick),
         horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center,
     ) {
         Box(Modifier.width(24.dp).height(2.dp).clip(RoundedCornerShape(2.dp)).background(if (selected) Mitra.colors.accent else Color.Transparent))
