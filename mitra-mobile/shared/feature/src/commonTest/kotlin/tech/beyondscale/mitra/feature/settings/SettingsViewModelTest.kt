@@ -8,6 +8,7 @@ import tech.beyondscale.mitra.core.Outcome
 import tech.beyondscale.mitra.domain.model.User
 import tech.beyondscale.mitra.domain.repository.AuthRepository
 import kotlinx.coroutines.test.runTest
+import tech.beyondscale.mitra.domain.model.ModuleKey
 import tech.beyondscale.mitra.domain.model.Modules
 import tech.beyondscale.mitra.domain.model.SessionState
 import tech.beyondscale.mitra.domain.model.Settings
@@ -36,9 +37,11 @@ class SettingsViewModelTest : ViewModelTest() {
         assertEquals(3L, s.pending)
     }
 
-    @Test fun togglingAModuleKeepsTheOthers() {
-        vm().onAction(SettingsAction.SetModule(ModuleKey.Money, false))
-        assertEquals(listOf(Modules(money = false, wellness = false, ai = true)), settings.updates)
+    @Test fun togglesAreSentPerModule() {
+        val vm = vm()
+        vm.onAction(SettingsAction.SetModule(ModuleKey.Money, false))
+        vm.onAction(SettingsAction.SetModule(ModuleKey.Ai, false))
+        assertEquals(listOf(ModuleKey.Money to false, ModuleKey.Ai to false), settings.updates)
     }
 
     @Test fun setThemeAndSignOut() {

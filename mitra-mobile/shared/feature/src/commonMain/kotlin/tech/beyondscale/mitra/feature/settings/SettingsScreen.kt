@@ -32,6 +32,7 @@ import tech.beyondscale.mitra.designsystem.components.SectionHeader
 import tech.beyondscale.mitra.designsystem.icons.MitraIcons
 import tech.beyondscale.mitra.designsystem.theme.Mitra
 import tech.beyondscale.mitra.designsystem.theme.MitraDimens
+import tech.beyondscale.mitra.domain.model.ModuleKey
 import tech.beyondscale.mitra.domain.model.ThemeMode
 
 @Composable

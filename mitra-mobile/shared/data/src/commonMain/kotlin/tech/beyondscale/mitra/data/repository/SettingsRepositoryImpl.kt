@@ -16,11 +16,12 @@ import tech.beyondscale.mitra.data.local.PrefKeys
 import tech.beyondscale.mitra.data.local.PrefStore
 import tech.beyondscale.mitra.data.local.UserCache
 import tech.beyondscale.mitra.data.remote.UserEnvelope
+import tech.beyondscale.mitra.data.remote.toDomain
 import tech.beyondscale.mitra.data.sync.OutboxEntities
 import tech.beyondscale.mitra.data.sync.OutboxWriter
 import tech.beyondscale.mitra.data.sync.SyncEngine
 import tech.beyondscale.mitra.data.sync.SyncHandler
-import tech.beyondscale.mitra.domain.model.Modules
+import tech.beyondscale.mitra.domain.model.ModuleKey
 import tech.beyondscale.mitra.domain.repository.AuthRepository
 import tech.beyondscale.mitra.domain.repository.SettingsRepository
 
@@ -53,13 +54,15 @@ class SettingsRepositoryImpl(
         })
     }
 
-    override suspend fun updateModules(modules: Modules) {
-        val patch = buildJsonObject {
-            putJsonObject("modules") { put("money", modules.money); put("wellness", modules.wellness); put("ai", modules.ai) }
-        }
+    override suspend fun setModule(key: ModuleKey, enabled: Boolean) {
         withContext(io) {
             db.transaction {
                 val dto = cache.current() ?: return@transaction
+                val modules = dto.toDomain(json).settings.modules.with(key, enabled)
+                // The server merges settings shallowly, so the whole `modules` object is sent.
+                val patch = buildJsonObject {
+                    putJsonObject("modules") { put("money", modules.money); put("wellness", modules.wellness); put("ai", modules.ai) }
+                }
                 cache.put(dto.copy(settings = JsonObject(dto.settings + patch)))
                 outbox.enqueue(ENTITY, "PATCH", "users/me/settings", patch, coalesceKey = ENTITY)
             }

@@ -24,16 +24,19 @@ import tech.beyondscale.mitra.data.remote.PersistentCookiesStorage
 import tech.beyondscale.mitra.data.remote.TEST_BASE
 import tech.beyondscale.mitra.data.remote.UserDto
 import tech.beyondscale.mitra.data.remote.json
+import tech.beyondscale.mitra.data.remote.toDomain
 import tech.beyondscale.mitra.data.remote.userJson
 import tech.beyondscale.mitra.data.sync.OutboxWriter
 import tech.beyondscale.mitra.data.sync.SyncEngine
 import tech.beyondscale.mitra.data.testDriver
+import tech.beyondscale.mitra.domain.model.ModuleKey
 import tech.beyondscale.mitra.domain.model.Modules
 import tech.beyondscale.mitra.domain.model.SessionState
 import tech.beyondscale.mitra.testing.FixedClock
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
+import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.time.Instant
 
@@ -66,7 +69,7 @@ class SettingsRepositoryImplTest {
         server.offline = true
         val e = env()
         e.auth.restore(); runCurrent()
-        e.settings.updateModules(Modules(money = false)); runCurrent()
+        e.settings.setModule(ModuleKey.Money, false); runCurrent()
         assertEquals(Modules(money = false), assertIs<SessionState.SignedIn>(e.auth.session.value).user.settings.modules)
 
         server.offline = false
@@ -80,12 +83,12 @@ class SettingsRepositoryImplTest {
         server.routes["PATCH /api/users/me/settings"] = { req ->
             val sent = req.body.toByteArray().decodeToString()
             // While the first PATCH is on the wire, the user flips AI off too.
-            if (!reentered) { reentered = true; e.settings.updateModules(Modules(money = false, ai = false)) }
+            if (!reentered) { reentered = true; e.settings.setModule(ModuleKey.Ai, false) }
             json(userJson(settings = sent)) // the server echoes the merged settings it now holds
         }
         server.offline = true
         e.auth.restore(); runCurrent()
-        e.settings.updateModules(Modules(money = false))
+        e.settings.setModule(ModuleKey.Money, false)
         server.offline = false
         e.engine.drain(); runCurrent()
 
@@ -104,7 +107,7 @@ class SettingsRepositoryImplTest {
         server.offline = true
         val e = env()
         e.auth.restore(); runCurrent()
-        e.settings.updateModules(Modules(money = false))
+        e.settings.setModule(ModuleKey.Money, false)
         server.offline = false
         val drain = backgroundScope.launch { e.engine.drain() }
         withContext(Dispatchers.Default) { withTimeout(5.seconds) { while (server.log.none { it == "PATCH /api/users/me/settings" }) delay(10) } }
@@ -116,5 +119,18 @@ class SettingsRepositoryImplTest {
 
         assertNull(db.userQueries.selectCurrent().executeAsOneOrNull())
         assertEquals(SessionState.SignedOut, e.auth.session.value)
+    }
+
+    @Test fun rapidTogglesOfDifferentModulesBothLand() = runTest {
+        server.offline = true
+        val e = env()
+        e.auth.restore(); runCurrent()
+        e.settings.setModule(ModuleKey.Money, false)
+        e.settings.setModule(ModuleKey.Ai, false)
+
+        val cached = assertNotNull(UserCache(db, api.json, UnconfinedTestDispatcher(testScheduler)).current())
+        assertEquals(Modules(money = false, ai = false), cached.toDomain(api.json).settings.modules)
+        val row = db.outboxQueries.selectAll().executeAsList().single()
+        assertEquals("""{"modules":{"money":false,"wellness":true,"ai":false}}""", row.body)
     }
 }

@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import tech.beyondscale.mitra.domain.model.ModuleKey
 import tech.beyondscale.mitra.domain.model.Modules
 import tech.beyondscale.mitra.domain.model.SessionState
 import tech.beyondscale.mitra.domain.model.ThemeMode
@@ -26,8 +27,6 @@ data class SettingsUiState(
     val pending: Long = 0,
     val signingOut: Boolean = false,
 )
-
-enum class ModuleKey { Money, Wellness, Ai }
 
 sealed interface SettingsAction {
     data class SetTheme(val mode: ThemeMode) : SettingsAction
@@ -51,16 +50,7 @@ class SettingsViewModel(
     fun onAction(action: SettingsAction) {
         when (action) {
             is SettingsAction.SetTheme -> viewModelScope.launch { prefs.setTheme(action.mode) }
-            is SettingsAction.SetModule -> viewModelScope.launch {
-                val current = (auth.session.value as? SessionState.SignedIn)?.user?.settings?.modules ?: return@launch
-                settings.updateModules(
-                    when (action.key) {
-                        ModuleKey.Money -> current.copy(money = action.on)
-                        ModuleKey.Wellness -> current.copy(wellness = action.on)
-                        ModuleKey.Ai -> current.copy(ai = action.on)
-                    },
-                )
-            }
+            is SettingsAction.SetModule -> viewModelScope.launch { settings.setModule(action.key, action.on) }
             SettingsAction.SignOut -> {
                 signingOut.value = true
                 viewModelScope.launch { try {

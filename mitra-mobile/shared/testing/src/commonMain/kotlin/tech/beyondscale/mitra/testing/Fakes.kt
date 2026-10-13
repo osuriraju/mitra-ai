@@ -5,7 +5,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import tech.beyondscale.mitra.core.Outcome
-import tech.beyondscale.mitra.domain.model.Modules
+import tech.beyondscale.mitra.domain.model.ModuleKey
 import tech.beyondscale.mitra.domain.model.SessionState
 import tech.beyondscale.mitra.domain.model.Settings
 import tech.beyondscale.mitra.domain.model.SyncStatus
@@ -43,8 +43,8 @@ class FakeAuthRepository(initial: SessionState = SessionState.SignedOut) : AuthR
 }
 
 class FakeSettingsRepository : SettingsRepository {
-    val updates = mutableListOf<Modules>()
-    override suspend fun updateModules(modules: Modules) { updates += modules }
+    val updates = mutableListOf<Pair<ModuleKey, Boolean>>()
+    override suspend fun setModule(key: ModuleKey, enabled: Boolean) { updates += key to enabled }
 }
 
 class FakePreferencesRepository : PreferencesRepository {
