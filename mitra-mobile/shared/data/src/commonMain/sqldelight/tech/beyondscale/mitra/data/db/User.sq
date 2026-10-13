@@ -10,5 +10,9 @@ SELECT json FROM cached_user LIMIT 1;
 upsert:
 INSERT OR REPLACE INTO cached_user(id, json) VALUES (?, ?);
 
+-- Keeps the table single-row: there is only ever one signed-in user.
+deleteOthers:
+DELETE FROM cached_user WHERE id != ?;
+
 deleteAll:
 DELETE FROM cached_user;

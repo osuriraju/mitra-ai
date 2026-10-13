@@ -17,7 +17,11 @@ class UserCache(private val db: MitraDb, private val json: Json, private val io:
 
     fun current(): UserDto? = db.userQueries.selectCurrent().executeAsOneOrNull()?.let { decode(it) }
 
-    fun put(dto: UserDto) = db.userQueries.upsert(dto.id, json.encodeToString(UserDto.serializer(), dto))
+    /** Replaces the cached user; any other account's row is dropped so [current] can never pick the wrong one. */
+    fun put(dto: UserDto) = db.transaction {
+        db.userQueries.deleteOthers(dto.id)
+        db.userQueries.upsert(dto.id, json.encodeToString(UserDto.serializer(), dto))
+    }
 
     /** A corrupt cached row is treated as no cached user. */
     private fun decode(raw: String): UserDto? = runCatching { json.decodeFromString<UserDto>(raw) }.getOrNull()

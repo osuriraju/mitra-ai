@@ -1,6 +1,13 @@
 package tech.beyondscale.mitra.data.repository
 
 import io.ktor.client.engine.mock.toByteArray
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
+import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runCurrent
@@ -27,6 +34,7 @@ import tech.beyondscale.mitra.testing.FixedClock
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
+import kotlin.test.assertNull
 import kotlin.time.Instant
 
 class SettingsRepositoryImplTest {
@@ -42,8 +50,9 @@ class SettingsRepositoryImplTest {
         val io = UnconfinedTestDispatcher(testScheduler)
         val cache = UserCache(db, api.json, io)
         val engine = SyncEngine(api, db, {}, backgroundScope, io)
-        val auth = AuthRepositoryImpl(api, db, cache, PrefStore(db, io), LocalData(db), cookies, engine, backgroundScope, io)
-        val settings = SettingsRepositoryImpl(db, cache, OutboxWriter(db, api.json, clock), engine, auth, api.json, io)
+        val prefs = PrefStore(db, io)
+        val auth = AuthRepositoryImpl(api, db, cache, prefs, LocalData(db), cookies, engine, backgroundScope, io)
+        val settings = SettingsRepositoryImpl(db, cache, prefs, OutboxWriter(db, api.json, clock), engine, auth, api.json, io)
         db.userQueries.upsert("u1", api.json.encodeToString(UserDto.serializer(), UserDto("u1", "Raju Osuri", "raju@example.com")))
         db.prefQueries.put(PrefKeys.LAST_USER_ID, "u1")
         return Env(auth, settings, engine)
@@ -83,5 +92,29 @@ class SettingsRepositoryImplTest {
         val modules = assertIs<SessionState.SignedIn>(e.auth.session.value).user.settings.modules
         assertEquals(Modules(money = false, ai = false), modules)
         assertEquals(2, server.log.count { it == "PATCH /api/users/me/settings" })
+    }
+
+    @Test fun echoArrivingAfterLogoutDoesNotRecacheUser() = runTest {
+        val release = CompletableDeferred<Unit>()
+        server.routes["PATCH /api/users/me/settings"] = { req ->
+            val sent = req.body.toByteArray().decodeToString()
+            release.await()
+            json(userJson(settings = sent))
+        }
+        server.offline = true
+        val e = env()
+        e.auth.restore(); runCurrent()
+        e.settings.updateModules(Modules(money = false))
+        server.offline = false
+        val drain = backgroundScope.launch { e.engine.drain() }
+        withContext(Dispatchers.Default) { withTimeout(5.seconds) { while (server.log.none { it == "PATCH /api/users/me/settings" }) delay(10) } }
+
+        e.auth.logout(); runCurrent()
+        release.complete(Unit)
+        withContext(Dispatchers.Default) { withTimeout(5.seconds) { drain.join() } }
+        runCurrent()
+
+        assertNull(db.userQueries.selectCurrent().executeAsOneOrNull())
+        assertEquals(SessionState.SignedOut, e.auth.session.value)
     }
 }

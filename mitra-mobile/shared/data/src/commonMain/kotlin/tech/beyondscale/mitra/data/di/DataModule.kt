@@ -46,6 +46,6 @@ fun dataModule(baseUrl: String): Module = module {
     single<SyncController> { get<SyncEngine>() }
     single<AuthRepository> { AuthRepositoryImpl(get(), get(), get(), get(), get(), get(), get(), get<AppScope>().scope) }
     // Eager: it registers the user-settings sync handler, which must exist before the first drain.
-    single<SettingsRepository>(createdAtStart = true) { SettingsRepositoryImpl(get(), get(), get(), get(), get(), get()) }
+    single<SettingsRepository>(createdAtStart = true) { SettingsRepositoryImpl(get(), get(), get(), get(), get(), get(), get()) }
     single<PreferencesRepository> { PreferencesRepositoryImpl(get()) }
 }

@@ -12,6 +12,8 @@ import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonObject
 import tech.beyondscale.mitra.core.AppError
 import tech.beyondscale.mitra.data.db.MitraDb
+import tech.beyondscale.mitra.data.local.PrefKeys
+import tech.beyondscale.mitra.data.local.PrefStore
 import tech.beyondscale.mitra.data.local.UserCache
 import tech.beyondscale.mitra.data.remote.UserEnvelope
 import tech.beyondscale.mitra.data.sync.OutboxEntities
@@ -26,6 +28,7 @@ import tech.beyondscale.mitra.domain.repository.SettingsRepository
 class SettingsRepositoryImpl(
     private val db: MitraDb,
     private val cache: UserCache,
+    private val prefs: PrefStore,
     private val outbox: OutboxWriter,
     private val engine: SyncEngine,
     private val auth: AuthRepository,
@@ -39,7 +42,9 @@ class SettingsRepositoryImpl(
                 val user = response?.let { runCatching { json.decodeFromJsonElement(UserEnvelope.serializer(), it).user }.getOrNull() } ?: return
                 withContext(io) {
                     // A newer local change is still queued: keep it rather than flashing the older server copy.
+                    // The echo of a PATCH sent before logout (or for another account) must not re-cache that user.
                     db.transaction {
+                        if (prefs.get(PrefKeys.LAST_USER_ID) != user.id) return@transaction
                         if (db.outboxQueries.pendingByCoalesceKey(ENTITY).executeAsOneOrNull() == null) cache.put(user)
                     }
                 }
