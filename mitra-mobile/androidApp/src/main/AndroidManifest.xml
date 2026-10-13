@@ -7,6 +7,8 @@
         android:label="Mitra"
         android:icon="@mipmap/ic_launcher"
         android:allowBackup="false"
+        android:fullBackupContent="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
         android:usesCleartextTraffic="${cleartext}"
         android:enableOnBackInvokedCallback="true"
         android:theme="@style/Theme.Mitra">

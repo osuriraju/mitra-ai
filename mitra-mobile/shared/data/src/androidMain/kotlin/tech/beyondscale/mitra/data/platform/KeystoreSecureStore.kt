@@ -35,14 +35,32 @@ class KeystoreSecureStore(context: Context) : SecureStore {
             val cipher = Cipher.getInstance(TRANSFORM)
             cipher.init(Cipher.DECRYPT_MODE, key(), GCMParameterSpec(128, bytes, 0, IV_LEN))
             String(cipher.doFinal(bytes, IV_LEN, bytes.size - IV_LEN), Charsets.UTF_8)
-        }.getOrNull() // unreadable (e.g. key reset) → treat as signed out
+        }.getOrElse {
+            // Unreadable (e.g. key reset): drop the stale entry and treat as signed out.
+            runCatching { prefs.edit().remove(key).apply() }
+            null
+        }
     }
 
+    /** Never throws: on Keystore failure the key is reset and retried once; if that fails too the value is dropped (memory-only session). */
     override fun put(key: String, value: String?) {
-        if (value == null) { prefs.edit().remove(key).apply(); return }
+        if (value == null) { runCatching { prefs.edit().remove(key).apply() }; return }
+        val encoded = runCatching { encrypt(value) }.recoverCatching {
+            deleteKey()
+            encrypt(value)
+        }.getOrNull()
+        runCatching {
+            if (encoded != null) prefs.edit().putString(key, encoded).apply() else prefs.edit().remove(key).apply()
+        }
+    }
+
+    private fun encrypt(value: String): String {
         val cipher = Cipher.getInstance(TRANSFORM).apply { init(Cipher.ENCRYPT_MODE, key()) }
-        val out = cipher.iv + cipher.doFinal(value.toByteArray(Charsets.UTF_8))
-        prefs.edit().putString(key, Base64.encodeToString(out, Base64.NO_WRAP)).apply()
+        return Base64.encodeToString(cipher.iv + cipher.doFinal(value.toByteArray(Charsets.UTF_8)), Base64.NO_WRAP)
+    }
+
+    private fun deleteKey() {
+        runCatching { KeyStore.getInstance("AndroidKeyStore").apply { load(null) }.deleteEntry(ALIAS) }
     }
 
     private companion object {

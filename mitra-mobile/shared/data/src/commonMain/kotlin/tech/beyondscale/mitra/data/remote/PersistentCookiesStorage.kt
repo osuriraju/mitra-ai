@@ -4,8 +4,11 @@ import io.ktor.client.plugins.cookies.CookiesStorage
 import io.ktor.http.Cookie
 import io.ktor.http.CookieEncoding
 import io.ktor.http.Url
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import tech.beyondscale.mitra.core.AppClock
@@ -26,16 +29,25 @@ private data class StoredCookie(
  * Keeps the backend's session cookie across app restarts. We talk to a single API host,
  * so every stored cookie is sent with every request.
  */
-class PersistentCookiesStorage(private val store: SecureStore, private val clock: AppClock) : CookiesStorage {
+class PersistentCookiesStorage(
+    private val store: SecureStore,
+    private val clock: AppClock,
+    private val io: CoroutineDispatcher = Dispatchers.IO,
+) : CookiesStorage {
     private val mutex = Mutex()
     private var cache: MutableMap<String, StoredCookie>? = null
 
-    private fun cookies(): MutableMap<String, StoredCookie> = cache ?: run {
-        val saved = store.get(KEY)?.let { runCatching { Json.decodeFromString<List<StoredCookie>>(it) }.getOrNull() }.orEmpty()
+    // SecureStore may hit SharedPreferences/Keystore IPC, so keep it off the caller's (possibly Main) thread.
+    private suspend fun cookies(): MutableMap<String, StoredCookie> = cache ?: run {
+        val raw = withContext(io) { store.get(KEY) }
+        val saved = raw?.let { runCatching { Json.decodeFromString<List<StoredCookie>>(it) }.getOrNull() }.orEmpty()
         saved.associateBy { it.name }.toMutableMap().also { cache = it }
     }
 
-    private fun persist() = store.put(KEY, Json.encodeToString(cookies().values.toList()))
+    private suspend fun persist() {
+        val json = Json.encodeToString(cookies().values.toList())
+        withContext(io) { store.put(KEY, json) }
+    }
 
     override suspend fun get(requestUrl: Url): List<Cookie> = mutex.withLock {
         val now = clock.now().toEpochMilliseconds()

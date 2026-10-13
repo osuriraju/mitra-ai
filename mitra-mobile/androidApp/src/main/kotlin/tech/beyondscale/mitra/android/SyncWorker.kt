@@ -31,6 +31,6 @@ class WorkManagerSyncScheduler(private val context: Context) : SyncScheduler {
             .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
             .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
             .build()
-        WorkManager.getInstance(context).enqueueUniqueWork("mitra-sync", ExistingWorkPolicy.KEEP, request)
+        WorkManager.getInstance(context).enqueueUniqueWork("mitra-sync", ExistingWorkPolicy.APPEND_OR_REPLACE, request)
     }
 }
