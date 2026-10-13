@@ -1,10 +1,16 @@
 package tech.beyondscale.mitra.data.remote
 
 import app.cash.turbine.test
+import io.ktor.client.engine.mock.MockEngine
+import io.ktor.client.engine.mock.respond
 import io.ktor.client.engine.mock.toByteArray
+import io.ktor.utils.io.ByteChannel
+import io.ktor.utils.io.writeStringUtf8
+import io.ktor.utils.io.close
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpMethod
 import io.ktor.http.HttpStatusCode
+import io.ktor.http.headersOf
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -76,5 +82,17 @@ class ApiClientTest {
 
     @Test fun nonJsonErrorBodyStillMaps() {
         assertEquals(AppError.Server(502, "ERROR", "Request failed (502)"), ApiClient.toAppError(502, null))
+    }
+
+    @Test fun connectionDroppedMidBodyIsOffline() = runTest {
+        val engine = MockEngine {
+            val channel = ByteChannel()
+            channel.writeStringUtf8("{\"user\"")
+            channel.flush()
+            channel.close(RuntimeException("connection reset"))
+            respond(channel, HttpStatusCode.OK, headersOf(HttpHeaders.ContentType, "application/json"))
+        }
+        val flaky = ApiClient(engine, TEST_BASE, cookies)
+        assertEquals(AppError.Offline, assertIs<Outcome.Err>(flaky.send(HttpMethod.Get, "auth/me")).error)
     }
 }

@@ -7,6 +7,7 @@ import io.ktor.client.plugins.cookies.CookiesStorage
 import io.ktor.client.plugins.cookies.HttpCookies
 import io.ktor.client.request.request
 import io.ktor.client.request.setBody
+import io.ktor.client.statement.HttpResponse
 import io.ktor.client.statement.bodyAsText
 import io.ktor.content.TextContent
 import io.ktor.http.ContentType
@@ -46,17 +47,19 @@ class ApiClient(engine: HttpClientEngine, baseUrl: String, cookies: CookiesStora
 
     /** [path] is relative to the API base with no leading slash, e.g. "auth/login". */
     suspend fun send(method: HttpMethod, path: String, body: JsonElement? = null): Outcome<JsonElement?> {
-        val response = try {
-            http.request(base + path) {
+        val response: HttpResponse
+        val text: String
+        try {
+            response = http.request(base + path) {
                 this.method = method
                 if (body != null) setBody(TextContent(json.encodeToString(JsonElement.serializer(), body), ContentType.Application.Json))
             }
+            text = response.bodyAsText()
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
             return Outcome.Err(AppError.Offline)
         }
-        val text = response.bodyAsText()
         val element = if (text.isBlank()) null else runCatching { json.parseToJsonElement(text) }.getOrNull()
         if (response.status.isSuccess()) return Outcome.Ok(element)
         val error = toAppError(response.status.value, element)
