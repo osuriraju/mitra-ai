@@ -27,6 +27,8 @@ sealed interface SignupAction {
 }
 
 class SignupViewModel(private val signup: SignupUseCase) : ViewModel() {
+    private companion object { val FIELDS = setOf("name", "email", "password") }
+
     private val _state = MutableStateFlow(SignupUiState())
     val state: StateFlow<SignupUiState> = _state.asStateFlow()
 
@@ -44,11 +46,11 @@ class SignupViewModel(private val signup: SignupUseCase) : ViewModel() {
         if (s.loading) return
         _state.update { it.copy(loading = true, error = null) }
         viewModelScope.launch {
-            val r = signup(s.name, s.email, s.password)
+            val r = guarded { signup(s.name, s.email, s.password) }
             _state.update {
                 when (r) {
                     is Outcome.Ok -> it.copy(loading = false)
-                    is Outcome.Err -> it.copy(loading = false, fieldErrors = r.error.fieldErrors(), error = r.error.bannerText())
+                    is Outcome.Err -> r.error.present(FIELDS).let { p -> it.copy(loading = false, fieldErrors = p.fieldErrors, error = p.banner) }
                 }
             }
         }

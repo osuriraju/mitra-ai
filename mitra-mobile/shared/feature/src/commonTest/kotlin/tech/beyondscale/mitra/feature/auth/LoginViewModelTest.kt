@@ -1,7 +1,10 @@
 package tech.beyondscale.mitra.feature.auth
 
 import tech.beyondscale.mitra.core.AppError
+import tech.beyondscale.mitra.core.FieldIssue
 import tech.beyondscale.mitra.core.Outcome
+import tech.beyondscale.mitra.domain.model.User
+import tech.beyondscale.mitra.domain.repository.AuthRepository
 import tech.beyondscale.mitra.domain.usecase.LoginUseCase
 import tech.beyondscale.mitra.testing.FakeAuthRepository
 import tech.beyondscale.mitra.testing.ViewModelTest
@@ -48,5 +51,25 @@ class LoginViewModelTest : ViewModelTest() {
         vm.onAction(LoginAction.Identifier("raju")); vm.onAction(LoginAction.Password("pw")); vm.onAction(LoginAction.Submit)
         assertEquals(listOf("login:raju"), repo.calls)
         assertNull(vm.state.value.error)
+    }
+
+    @Test fun unmappedValidationIssueShowsAsBanner() {
+        repo.result = Outcome.Err(AppError.Validation(listOf(FieldIssue("username", "That username is taken"))))
+        val vm = vm()
+        vm.onAction(LoginAction.Identifier("raju")); vm.onAction(LoginAction.Password("pw")); vm.onAction(LoginAction.Submit)
+        assertEquals("That username is taken", vm.state.value.error)
+        assertEquals(emptyMap(), vm.state.value.fieldErrors)
+    }
+
+    @Test fun throwingUseCaseResetsLoadingAndAllowsRetry() {
+        val throwing = object : AuthRepository by repo {
+            override suspend fun login(identifier: String, password: String): Outcome<User> = throw IllegalStateException("boom")
+        }
+        val vm = LoginViewModel(LoginUseCase(throwing))
+        vm.onAction(LoginAction.Identifier("raju")); vm.onAction(LoginAction.Password("pw")); vm.onAction(LoginAction.Submit)
+        assertFalse(vm.state.value.loading)
+        assertEquals("Something went wrong", vm.state.value.error)
+        vm.onAction(LoginAction.Submit)
+        assertFalse(vm.state.value.loading)
     }
 }

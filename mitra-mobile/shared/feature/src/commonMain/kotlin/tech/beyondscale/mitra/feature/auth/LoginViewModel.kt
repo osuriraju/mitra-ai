@@ -2,6 +2,7 @@ package tech.beyondscale.mitra.feature.auth
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -25,14 +26,36 @@ sealed interface LoginAction {
     data object Submit : LoginAction
 }
 
-internal fun AppError.fieldErrors(): Map<String, String> =
-    (this as? AppError.Validation)?.issues?.associate { it.path to it.message }.orEmpty()
+/** What a failed submit shows: messages under the visible fields, plus a banner for anything else. */
+internal data class ErrorPresentation(val fieldErrors: Map<String, String>, val banner: String?)
 
-/** Validation errors sit under their fields; everything else shows as a banner. */
-internal fun AppError.bannerText(): String? = if (this is AppError.Validation) null else message
+/**
+ * Validation issues whose path is a rendered field go under that field. If any issue has no field to sit
+ * under (or none map at all), the user would otherwise see nothing, so a banner is shown as well.
+ * Non-validation errors are always a banner.
+ */
+internal fun AppError.present(visibleFields: Set<String>): ErrorPresentation {
+    if (this !is AppError.Validation) return ErrorPresentation(emptyMap(), message)
+    val (mapped, unmapped) = issues.partition { it.path in visibleFields }
+    val fields = mapped.associate { it.path to it.message }
+    val banner = if (mapped.isEmpty() || unmapped.isNotEmpty()) unmapped.firstOrNull()?.message ?: message else null
+    return ErrorPresentation(fields, banner)
+}
+
+/** Runs a use case so that a throwing one can never leave the form stuck loading. */
+internal suspend fun <T> guarded(block: suspend () -> Outcome<T>): Outcome<T> =
+    try {
+        block()
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        Outcome.Err(AppError.Unknown(e))
+    }
 
 /** On success the app root sees SessionState.SignedIn and swaps to the main shell — no navigation here. */
 class LoginViewModel(private val login: LoginUseCase) : ViewModel() {
+    private companion object { val FIELDS = setOf("identifier", "password") }
+
     private val _state = MutableStateFlow(LoginUiState())
     val state: StateFlow<LoginUiState> = _state.asStateFlow()
 
@@ -49,11 +72,11 @@ class LoginViewModel(private val login: LoginUseCase) : ViewModel() {
         if (s.loading) return
         _state.update { it.copy(loading = true, error = null) }
         viewModelScope.launch {
-            val r = login(s.identifier, s.password)
+            val r = guarded { login(s.identifier, s.password) }
             _state.update {
                 when (r) {
                     is Outcome.Ok -> it.copy(loading = false)
-                    is Outcome.Err -> it.copy(loading = false, fieldErrors = r.error.fieldErrors(), error = r.error.bannerText())
+                    is Outcome.Err -> r.error.present(FIELDS).let { p -> it.copy(loading = false, fieldErrors = p.fieldErrors, error = p.banner) }
                 }
             }
         }

@@ -24,6 +24,8 @@ sealed interface ForgotAction {
 }
 
 class ForgotPasswordViewModel(private val forgot: ForgotPasswordUseCase) : ViewModel() {
+    private companion object { val FIELDS = setOf("email") }
+
     private val _state = MutableStateFlow(ForgotUiState())
     val state: StateFlow<ForgotUiState> = _state.asStateFlow()
 
@@ -39,11 +41,11 @@ class ForgotPasswordViewModel(private val forgot: ForgotPasswordUseCase) : ViewM
         if (s.loading) return
         _state.update { it.copy(loading = true, error = null) }
         viewModelScope.launch {
-            val r = forgot(s.email)
+            val r = guarded { forgot(s.email) }
             _state.update {
                 when (r) {
                     is Outcome.Ok -> it.copy(loading = false, sent = true)
-                    is Outcome.Err -> it.copy(loading = false, fieldError = r.error.fieldErrors()["email"], error = r.error.bannerText())
+                    is Outcome.Err -> r.error.present(FIELDS).let { p -> it.copy(loading = false, fieldError = p.fieldErrors["email"], error = p.banner) }
                 }
             }
         }
