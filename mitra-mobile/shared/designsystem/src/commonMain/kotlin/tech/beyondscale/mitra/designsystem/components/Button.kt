@@ -49,7 +49,7 @@ fun MitraButton(
     val shape = RoundedCornerShape(MitraDimens.radiusSm)
     Row(
         modifier
-            .heightIn(min = if (size == ButtonSize.Lg) 48.dp else 40.dp)
+            .heightIn(min = if (size == ButtonSize.Lg) 52.dp else 48.dp)
             .alpha(if (enabled) 1f else 0.5f)
             .clip(shape)
             .background(bg)

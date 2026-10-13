@@ -2,6 +2,7 @@ package tech.beyondscale.mitra.designsystem.theme
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontVariation
@@ -21,19 +22,29 @@ data class MitraType(
 )
 
 @Composable
-private fun manrope() = FontFamily(listOf(400, 500, 600, 700, 800).map { w ->
-    Font(Res.font.manrope, weight = FontWeight(w), variationSettings = FontVariation.Settings(FontVariation.weight(w)))
-})
+private fun manrope(): FontFamily {
+    val fonts = listOf(400, 500, 600, 700, 800).map { w ->
+        Font(Res.font.manrope, weight = FontWeight(w), variationSettings = FontVariation.Settings(FontVariation.weight(w)))
+    }
+    return remember(fonts) { FontFamily(fonts) }
+}
 
 @Composable
-private fun mono() = FontFamily(listOf(400, 500, 600).map { w ->
-    Font(Res.font.jetbrains_mono, weight = FontWeight(w), variationSettings = FontVariation.Settings(FontVariation.weight(w)))
-})
+private fun mono(): FontFamily {
+    val fonts = listOf(400, 500, 600).map { w ->
+        Font(Res.font.jetbrains_mono, weight = FontWeight(w), variationSettings = FontVariation.Settings(FontVariation.weight(w)))
+    }
+    return remember(fonts) { FontFamily(fonts) }
+}
 
 /** Sizes follow globals.css: body 14px/1.45, .sm 12.5, .xs 11.5, .eyebrow 11 bold +.09em, headings -0.03em. */
 @Composable
 internal fun mitraType(): MitraType {
     val m = manrope(); val n = mono()
+    return remember(m, n) { buildType(m, n) }
+}
+
+private fun buildType(m: FontFamily, n: FontFamily): MitraType {
     val body = TextStyle(fontFamily = m, fontSize = 14.sp, lineHeight = 20.sp)
     return MitraType(
         h1 = TextStyle(fontFamily = m, fontWeight = FontWeight.ExtraBold, fontSize = 22.sp, lineHeight = 27.sp, letterSpacing = (-0.03).em),

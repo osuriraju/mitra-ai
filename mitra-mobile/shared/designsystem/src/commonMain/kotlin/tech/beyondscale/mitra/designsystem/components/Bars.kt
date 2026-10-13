@@ -1,13 +1,15 @@
 package tech.beyondscale.mitra.designsystem.components
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
@@ -41,14 +43,14 @@ fun MitraTopBar(title: String, modifier: Modifier = Modifier, onBack: (() -> Uni
 @Composable
 fun MitraSegmented(options: List<String>, selectedIndex: Int, onSelect: (Int) -> Unit, modifier: Modifier = Modifier) {
     val c = Mitra.colors
-    Row(modifier.fillMaxWidth().clip(RoundedCornerShape(MitraDimens.radiusSm)).background(c.surface2).padding(3.dp)) {
+    Row(modifier.fillMaxWidth().clip(RoundedCornerShape(MitraDimens.radiusSm)).background(c.surface2).padding(3.dp).selectableGroup()) {
         options.forEachIndexed { i, label ->
             val on = i == selectedIndex
             Box(
                 Modifier.weight(1f).clip(RoundedCornerShape(MitraDimens.radiusSm - 2.dp))
                     .background(if (on) c.surface else c.surface2)
-                    .clickable(role = Role.RadioButton) { onSelect(i) }
-                    .padding(vertical = 8.dp),
+                    .selectable(selected = on, role = Role.RadioButton, onClick = { onSelect(i) })
+                    .heightIn(min = 48.dp),
                 contentAlignment = Alignment.Center,
             ) {
                 Text(label, style = Mitra.type.sm.copy(fontWeight = FontWeight.SemiBold), color = if (on) c.text else c.muted, textAlign = TextAlign.Center)

@@ -13,6 +13,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import tech.beyondscale.mitra.designsystem.theme.Mitra
 import tech.beyondscale.mitra.designsystem.theme.MitraDimens
@@ -39,7 +40,7 @@ fun MitraCard(
             .clip(shape)
             .background(bg)
             .border(1.dp, border, shape)
-            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
+            .then(if (onClick != null) Modifier.clickable(role = Role.Button, onClick = onClick) else Modifier)
             .padding(contentPadding),
         verticalArrangement = Arrangement.spacedBy(8.dp),
         content = content,
