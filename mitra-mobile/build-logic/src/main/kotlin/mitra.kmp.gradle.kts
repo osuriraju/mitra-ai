@@ -22,6 +22,8 @@ kotlin {
             languageSettings {
                 optIn("kotlin.time.ExperimentalTime")
                 optIn("kotlin.uuid.ExperimentalUuidApi")
+                optIn("kotlinx.coroutines.ExperimentalCoroutinesApi")
+                optIn("kotlinx.coroutines.FlowPreview")
             }
         }
         commonMain.dependencies { implementation(lib("coroutines-core")) }
