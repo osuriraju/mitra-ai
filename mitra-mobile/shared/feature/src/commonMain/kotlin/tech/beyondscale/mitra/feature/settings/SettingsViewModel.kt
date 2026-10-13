@@ -2,6 +2,7 @@ package tech.beyondscale.mitra.feature.settings
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -62,7 +63,15 @@ class SettingsViewModel(
             }
             SettingsAction.SignOut -> {
                 signingOut.value = true
-                viewModelScope.launch { auth.logout() }
+                viewModelScope.launch { try {
+                        auth.logout()
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (_: Exception) {
+                        // Leave the user signed in on this screen with the button re-enabled rather than crash.
+                    } finally {
+                        signingOut.value = false
+                    } }
             }
         }
     }

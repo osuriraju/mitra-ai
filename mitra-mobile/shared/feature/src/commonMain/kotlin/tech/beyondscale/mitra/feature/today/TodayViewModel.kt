@@ -2,9 +2,11 @@ package tech.beyondscale.mitra.feature.today
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.stateIn
 import tech.beyondscale.mitra.core.AppClock
 import tech.beyondscale.mitra.core.fmtClock
@@ -19,10 +21,22 @@ data class TodayUiState(val dateLine: String, val greeting: String, val stats: L
 
 /** Phase 1: header + stat strip skeleton. Each later module fills its stat and Today section. */
 class TodayViewModel(auth: AuthRepository, private val clock: AppClock) : ViewModel() {
-    val state: StateFlow<TodayUiState> = auth.session.map(::build)
+    val state: StateFlow<TodayUiState> = combine(auth.session, minuteTicker(), ::buildFrom)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), build(auth.session.value))
 
-    private fun build(session: SessionState): TodayUiState {
+    /** Emits now and then at every wall-clock minute boundary so the header never goes stale. */
+    private fun minuteTicker() = flow {
+        while (true) {
+            emit(Unit)
+            val intoMinute = clock.now().toEpochMilliseconds().mod(60_000L)
+            delay(60_000L - intoMinute)
+        }
+    }
+
+    private fun build(session: SessionState) = buildFrom(session, Unit)
+
+    @Suppress("UNUSED_PARAMETER")
+    private fun buildFrom(session: SessionState, tick: Unit): TodayUiState {
         val now = clock.localNow()
         val first = (session as? SessionState.SignedIn)?.user?.firstName
         return TodayUiState(

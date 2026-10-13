@@ -12,6 +12,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -42,6 +43,7 @@ fun SettingsRoute(vm: SettingsViewModel = koinViewModel()) {
 @Composable
 fun SettingsScreen(state: SettingsUiState, onAction: (SettingsAction) -> Unit) {
     var confirmSignOut by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(state.pending) { if (state.pending == 0L) confirmSignOut = false }
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(MitraDimens.pad),
         verticalArrangement = Arrangement.spacedBy(MitraDimens.gap),
