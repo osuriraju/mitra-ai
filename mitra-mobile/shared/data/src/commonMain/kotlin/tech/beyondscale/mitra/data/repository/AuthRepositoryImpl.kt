@@ -2,6 +2,13 @@ package tech.beyondscale.mitra.data.repository
 
 import io.ktor.http.HttpMethod
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import tech.beyondscale.mitra.core.AppError
+import tech.beyondscale.mitra.data.sync.withPendingSettings
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
@@ -57,8 +64,22 @@ class AuthRepositoryImpl(
 
     init {
         // Session gone server-side: back to Login, but keep local data + queued changes for the same user.
-        scope.launch { api.unauthorized.collect { auth.value = Auth.SignedOut } }
+        // UNDISPATCHED so the collector is subscribed before anything can emit.
+        scope.launch(start = CoroutineStart.UNDISPATCHED) {
+            api.unauthorized.collect { if (refreshing.value == 0) auth.value = Auth.SignedOut }
+        }
     }
+
+    /**
+     * Session epoch: bumped (under [lock]) by logout, and checked under the same lock before an adopt writes.
+     * A request that started before a logout therefore can't resurrect the user. Refresh handles its own 401
+     * (only if the epoch is unchanged); the shared `unauthorized` broadcast is ignored while a refresh is in
+     * flight so its late delivery can't undo a newer sign-in.
+     */
+    private val lock = Mutex()
+    private var epoch = 0L
+    private val refreshing = MutableStateFlow(0)
+    private var refreshJob: Job? = null
 
     override suspend fun restore() {
         val cached = withContext(io) {
@@ -68,59 +89,78 @@ class AuthRepositoryImpl(
         if (cached != null) {
             auth.value = Auth.SignedIn
             sync.requestSync()
-            scope.launch { refresh() }
+            refreshJob = scope.launch { refresh() }
         } else if (refresh() is Outcome.Err) {
             auth.value = Auth.SignedOut
         }
     }
 
-    override suspend fun refresh(): Outcome<User> = when (val r = api.call<UserEnvelope>(HttpMethod.Get, "auth/me")) {
-        is Outcome.Err -> r
-        is Outcome.Ok -> adopt(r.value.user)
+    override suspend fun refresh(): Outcome<User> {
+        val started = epoch
+        refreshing.update { it + 1 }
+        try {
+            return when (val r = api.call<UserEnvelope>(HttpMethod.Get, "auth/me")) {
+                is Outcome.Err -> {
+                    val e = r.error
+                    if (e is AppError.Unauthenticated && e.code == "UNAUTHENTICATED" && started == epoch) auth.value = Auth.SignedOut
+                    r
+                }
+                is Outcome.Ok -> adopt(r.value.user, started)
+            }
+        } finally {
+            refreshing.update { it - 1 }
+        }
     }
 
-    override suspend fun login(identifier: String, password: String): Outcome<User> = signIn(
-        api.call<UserEnvelope>(HttpMethod.Post, "auth/login", buildJsonObject {
+    override suspend fun login(identifier: String, password: String): Outcome<User> = epoch.let { started -> signIn(
+        started, api.call<UserEnvelope>(HttpMethod.Post, "auth/login", buildJsonObject {
             put("identifier", identifier); put("password", password); put("remember", true)
         }),
-    )
+    ) }
 
-    override suspend fun signup(name: String, email: String, password: String): Outcome<User> = signIn(
-        api.call<UserEnvelope>(HttpMethod.Post, "auth/signup", buildJsonObject {
+    override suspend fun signup(name: String, email: String, password: String): Outcome<User> = epoch.let { started -> signIn(
+        started, api.call<UserEnvelope>(HttpMethod.Post, "auth/signup", buildJsonObject {
             put("name", name); put("email", email); put("password", password)
         }),
-    )
+    ) }
 
     override suspend fun forgotPassword(email: String): Outcome<Unit> =
         api.send(HttpMethod.Post, "auth/forgot-password", buildJsonObject { put("email", email) }).map { }
 
     override suspend fun logout() {
+        lock.withLock { epoch++ } // from here on, in-flight refresh/login results are dropped
+        refreshJob?.cancel()
         api.send(HttpMethod.Post, "auth/logout", JsonObject(emptyMap())) // best effort; offline is fine
-        cookies.clear()
-        withContext(io) {
-            db.transaction {
-                localData.clearUserData()
-                prefs.remove(PrefKeys.LAST_USER_ID)
+        lock.withLock {
+            epoch++
+            cookies.clear()
+            withContext(io) {
+                db.transaction {
+                    localData.clearUserData()
+                    prefs.remove(PrefKeys.LAST_USER_ID)
+                }
             }
+            auth.value = Auth.SignedOut
         }
-        auth.value = Auth.SignedOut
     }
 
-    private suspend fun signIn(r: Outcome<UserEnvelope>): Outcome<User> = when (r) {
+    private suspend fun signIn(started: Long, r: Outcome<UserEnvelope>): Outcome<User> = when (r) {
         is Outcome.Err -> r
-        is Outcome.Ok -> adopt(r.value.user).also { sync.requestSync() }
+        is Outcome.Ok -> adopt(r.value.user, started).also { if (it is Outcome.Ok) sync.requestSync() }
     }
 
     /** Stores the server's user. A different account than the last one on this device wipes local data first. */
-    private suspend fun adopt(dto: UserDto): Outcome<User> {
-        withContext(io) {
-            db.transaction {
+    private suspend fun adopt(dto: UserDto, started: Long): Outcome<User> = lock.withLock {
+        if (started != epoch) return@withLock Outcome.Err(AppError.Unauthenticated("SESSION_ENDED", "Signed out"))
+        val stored = withContext(io) {
+            db.transactionWithResult {
                 if (prefs.get(PrefKeys.LAST_USER_ID) != dto.id) localData.clearUserData()
                 prefs.put(PrefKeys.LAST_USER_ID, dto.id)
-                cache.put(dto)
+                // Queued settings changes stay visible on top of the server copy until they are acknowledged.
+                dto.withPendingSettings(db, api.json).also { cache.put(it) }
             }
         }
         auth.value = Auth.SignedIn
-        return Outcome.Ok(dto.toDomain(api.json))
+        Outcome.Ok(stored.toDomain(api.json))
     }
 }

@@ -14,6 +14,7 @@ import tech.beyondscale.mitra.core.AppError
 import tech.beyondscale.mitra.data.db.MitraDb
 import tech.beyondscale.mitra.data.local.UserCache
 import tech.beyondscale.mitra.data.remote.UserEnvelope
+import tech.beyondscale.mitra.data.sync.OutboxEntities
 import tech.beyondscale.mitra.data.sync.OutboxWriter
 import tech.beyondscale.mitra.data.sync.SyncEngine
 import tech.beyondscale.mitra.data.sync.SyncHandler
@@ -38,7 +39,9 @@ class SettingsRepositoryImpl(
                 val user = response?.let { runCatching { json.decodeFromJsonElement(UserEnvelope.serializer(), it).user }.getOrNull() } ?: return
                 withContext(io) {
                     // A newer local change is still queued: keep it rather than flashing the older server copy.
-                    if (db.outboxQueries.pendingByCoalesceKey(ENTITY).executeAsOneOrNull() == null) cache.put(user)
+                    db.transaction {
+                        if (db.outboxQueries.pendingByCoalesceKey(ENTITY).executeAsOneOrNull() == null) cache.put(user)
+                    }
                 }
             }
             override suspend fun onRejected(error: AppError) { auth.refresh() }
@@ -59,5 +62,5 @@ class SettingsRepositoryImpl(
         engine.requestSync()
     }
 
-    companion object { const val ENTITY = "user-settings" }
+    companion object { const val ENTITY = OutboxEntities.USER_SETTINGS }
 }

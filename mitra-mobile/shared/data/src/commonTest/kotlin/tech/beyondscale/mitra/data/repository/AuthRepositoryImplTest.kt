@@ -1,7 +1,9 @@
 package tech.beyondscale.mitra.data.repository
 
 import io.ktor.http.HttpStatusCode
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
@@ -149,5 +151,37 @@ class AuthRepositoryImplTest {
     @Test fun forgotPasswordPostsEmail() = runTest {
         server.routes["POST /api/auth/forgot-password"] = { json("""{"ok":true}""") }
         assertEquals(Outcome.Ok(Unit), repo().forgotPassword("raju@example.com"))
+    }
+
+    @Test fun refreshKeepsQueuedSettingsOverServerCopy() = runTest {
+        seedCachedUser()
+        writer.enqueue("user-settings", "PATCH", "users/me/settings", buildJsonObject {
+            put("modules", buildJsonObject { put("money", false); put("wellness", true); put("ai", true) })
+        }, coalesceKey = "user-settings")
+        server.routes["GET /api/auth/me"] = { json(userJson("u1", settings = """{"modules":{"money":true,"wellness":true,"ai":true}}""")) }
+        val repo = repo()
+        repo.restore(); runCurrent()
+        withContext(Dispatchers.Default) { withTimeout(5.seconds) { while (server.log.none { it == "GET /api/auth/me" }) delay(10) } }
+        assertEquals(false, withContext(Dispatchers.Default) {
+            withTimeout(5.seconds) { repo.session.first { it is SessionState.SignedIn && !it.user.settings.modules.money } }
+        }.let { (it as SessionState.SignedIn).user.settings.modules.money })
+        assertEquals(1L, outboxSize())
+    }
+
+    @Test fun logoutWhileRefreshInFlightStaysSignedOut() = runTest {
+        seedCachedUser()
+        val release = CompletableDeferred<Unit>()
+        server.routes["GET /api/auth/me"] = { release.await(); json(userJson("u1")) }
+        val repo = repo()
+        repo.restore(); runCurrent()
+        withContext(Dispatchers.Default) { withTimeout(5.seconds) { while (server.requests.none { it.url.encodedPath == "/api/auth/me" }) delay(10) } }
+        server.offline = true
+        repo.logout(); runCurrent()
+        release.complete(Unit)
+        withContext(Dispatchers.Default) { delay(200) }
+        runCurrent()
+        assertEquals(SessionState.SignedOut, repo.session.value)
+        assertNull(db.userQueries.selectCurrent().executeAsOneOrNull())
+        assertNull(db.prefQueries.get(PrefKeys.LAST_USER_ID).executeAsOneOrNull())
     }
 }
