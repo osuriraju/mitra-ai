@@ -25,4 +25,14 @@ class MoneyTest {
         assertEquals("₹1.2k", inrShort(1234.0))
         assertEquals("₹999", inrShort(999.0))
     }
+
+    @Test fun inrShortRoundsOnExactBinaryValueLikeJsToFixed() {
+        assertEquals("₹1.4k", inrShort(1450.0)) // 1.45 is really 1.4499...
+        assertEquals("₹1.1k", inrShort(1150.0))
+        assertEquals("₹1.1k", inrShort(1050.0))
+        assertEquals("₹2.4k", inrShort(2350.0))
+        assertEquals("₹1.3k", inrShort(1250.0)) // exact tie rounds up
+        assertEquals("₹1.05L", inrShort(105000.0))
+        assertEquals("₹1.15L", inrShort(115000.0))
+    }
 }
