@@ -31,7 +31,7 @@ class ApiClientTest {
 
     @Test fun decodesSuccessAndSendsJsonBody() = runTest {
         server.routes["POST /api/auth/login"] = { req ->
-            assertEquals("""{"identifier":"raju","password":"pw"}""", String(req.body.toByteArray()))
+            assertEquals("""{"identifier":"raju","password":"pw"}""", req.body.toByteArray().decodeToString())
             json(userJson())
         }
         val r = api.call<UserEnvelope>(HttpMethod.Post, "auth/login", buildJsonObject { put("identifier", "raju"); put("password", "pw") })

@@ -54,7 +54,7 @@ class SyncEngineTest {
     private fun pending() = db.outboxQueries.selectAll().executeAsList()
 
     @Test fun drainsInOrderAndCallsHandler() = runTest {
-        server.routes["PATCH /api/a"] = { req -> assertEquals("""{"v":"1"}""", String(req.body.toByteArray())); json("""{"ok":1}""") }
+        server.routes["PATCH /api/a"] = { req -> assertEquals("""{"v":"1"}""", req.body.toByteArray().decodeToString()); json("""{"ok":1}""") }
         server.routes["PATCH /api/b"] = { json("""{"ok":2}""") }
         enqueue("a", "1"); enqueue("b", "2")
         val engine = engine()
@@ -135,7 +135,7 @@ class SyncEngineTest {
     @Test fun enqueueDuringSendIsNotLost() = runTest {
         val bodies = mutableListOf<String>()
         server.routes["PATCH /api/s"] = { req ->
-            bodies += String(req.body.toByteArray())
+            bodies += req.body.toByteArray().decodeToString()
             if (bodies.size == 1) writer.enqueue("t", "PATCH", "s", buildJsonObject { put("v", "new") }, "k")
             json("{}")
         }
