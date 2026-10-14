@@ -10,6 +10,7 @@ import tech.beyondscale.mitra.domain.usecase.SignupUseCase
 import tech.beyondscale.mitra.feature.auth.ForgotPasswordViewModel
 import tech.beyondscale.mitra.feature.auth.LoginViewModel
 import tech.beyondscale.mitra.feature.auth.SignupViewModel
+import tech.beyondscale.mitra.feature.quickadd.QuickAddViewModel
 import tech.beyondscale.mitra.feature.settings.SettingsViewModel
 import tech.beyondscale.mitra.feature.tasks.TaskDetailViewModel
 import tech.beyondscale.mitra.feature.tasks.TaskEditorViewModel
@@ -27,5 +28,6 @@ val featureModule = module {
     viewModelOf(::SettingsViewModel)
     viewModelOf(::TasksViewModel)
     viewModelOf(::TaskEditorViewModel)
+    viewModelOf(::QuickAddViewModel)
     viewModel { (id: String) -> TaskDetailViewModel(id, get(), get()) }
 }
