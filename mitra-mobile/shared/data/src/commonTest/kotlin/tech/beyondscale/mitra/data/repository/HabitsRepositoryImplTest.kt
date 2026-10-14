@@ -121,6 +121,9 @@ class HabitsRepositoryImplTest {
         val e = env()
         var gets = 0
         var added: Habit? = null
+        // While the test body waits on the mock's thread, runTest may skip ahead to the engine's debounced drain: its
+        // POST must not be refused (a refusal drops the row from the outbox and the habit with it on the next attempt).
+        server.routes["POST /api/habits"] = { throw Exception("network down") }
         server.routes["GET /api/habits"] = {
             gets++
             if (gets == 1) added = e.repo.create(HabitDraft(name = "Stretch")) // written while the snapshot is on the wire

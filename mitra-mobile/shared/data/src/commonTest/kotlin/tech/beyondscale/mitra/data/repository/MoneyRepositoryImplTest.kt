@@ -184,6 +184,9 @@ class MoneyRepositoryImplTest {
         seedAccount(0)
         var gets = 0
         var added: Transaction? = null
+        // While the test body waits on the mock's thread, runTest may skip ahead to the engine's debounced drain: its
+        // POST must not be refused (a refusal drops the row from the outbox and the row with it on the next attempt).
+        server.routes["POST /api/money/transactions"] = { throw Exception("network down") }
         server.routes["GET /api/money/bootstrap"] = {
             gets++
             if (gets == 1) added = e.repo.addTransaction(expense(1000)) // written while the snapshot is on the wire
