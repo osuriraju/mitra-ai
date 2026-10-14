@@ -69,4 +69,24 @@ class ExpenseParserTest {
     fun incomeCategoriesNeverMatch() {
         assertNull(ExpenseParser.parse("500 salary", cats).category)
     }
+
+    @Test
+    fun amountAboveServerMaxIsNotParsed() {
+        val p = ExpenseParser.parse("call 9876543210", cats)
+        assertNull(p.amountPaise)
+        assertEquals("call 9876543210", p.merchant)
+    }
+
+    @Test
+    fun punctuationAroundCategoryWordIsStripped() {
+        assertEquals("food", ExpenseParser.parse("food, 240", cats).category?.slug)
+        assertEquals("food", ExpenseParser.parse("240 lunch (food)", cats).category?.slug)
+        assertEquals("groceries", ExpenseParser.parse("240 groceries.", cats).category?.slug)
+    }
+
+    @Test
+    fun commaGroupingMustBeValid() {
+        assertEquals(125000L, ExpenseParser.parse("1,250 food", cats).amountPaise)
+        assertNull(ExpenseParser.parse("2,5 food", cats).amountPaise)
+    }
 }
