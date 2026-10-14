@@ -47,6 +47,7 @@ import kotlinx.coroutines.launch
 import tech.beyondscale.mitra.designsystem.components.ButtonKind
 import tech.beyondscale.mitra.designsystem.components.MitraButton
 import tech.beyondscale.mitra.designsystem.components.MitraTextField
+import tech.beyondscale.mitra.designsystem.icons.MitraIcons
 import tech.beyondscale.mitra.designsystem.theme.Mitra
 import tech.beyondscale.mitra.designsystem.theme.MitraDimens
 
@@ -57,7 +58,8 @@ internal fun validateProjectName(name: String): String? = if (name.isBlank()) "N
 
 /**
  * Create/edit project form (web `ProjectForm`) as a bottom sheet. Show it only while open; [onSave] gets the trimmed
- * name and is called only when it is valid. The web's "Contributes to goal" field arrives with Goals (Phase 4).
+ * name, the icon and the "Contributes to goal" choice (null = None), and is called only when the name is valid.
+ * [goalOptions] are id → name for every goal (any state, as on the web).
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -66,7 +68,9 @@ fun ProjectFormSheet(
     confirmLabel: String,
     initialName: String = "",
     initialEmoji: String = "🚀",
-    onSave: (name: String, emoji: String) -> Unit,
+    goalOptions: List<Pair<String, String>> = emptyList(),
+    initialGoalId: String? = null,
+    onSave: (name: String, emoji: String, goalId: String?) -> Unit,
     onDismiss: () -> Unit,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -75,10 +79,10 @@ fun ProjectFormSheet(
     // One-shot: a second Save tap during the hide animation must not call onSave again.
     var saved by remember { mutableStateOf(false) }
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState, containerColor = Mitra.colors.bg) {
-        ProjectForm(title, confirmLabel, initialName, initialEmoji, onCancel = close) { name, emoji ->
+        ProjectForm(title, confirmLabel, initialName, initialEmoji, goalOptions, initialGoalId, onCancel = close) { name, emoji, goalId ->
             if (!saved) {
                 saved = true
-                onSave(name, emoji)
+                onSave(name, emoji, goalId)
                 close()
             }
         }
@@ -92,19 +96,22 @@ private fun ProjectForm(
     confirmLabel: String,
     initialName: String,
     initialEmoji: String,
+    goalOptions: List<Pair<String, String>>,
+    initialGoalId: String?,
     onCancel: () -> Unit,
-    onSave: (String, String) -> Unit,
+    onSave: (String, String, String?) -> Unit,
 ) {
     val c = Mitra.colors
     var name by rememberSaveable { mutableStateOf(initialName) }
     var emoji by rememberSaveable { mutableStateOf(initialEmoji) }
+    var goalId by rememberSaveable { mutableStateOf(initialGoalId) }
     var error by rememberSaveable { mutableStateOf<String?>(null) }
     val nameFocus = remember { FocusRequester() }
     LaunchedEffect(Unit) { nameFocus.requestFocus() }
     val save = {
         val err = validateProjectName(name)
         error = err
-        if (err == null) onSave(name.trim(), emoji)
+        if (err == null) onSave(name.trim(), emoji, goalId)
     }
 
     Column(Modifier.fillMaxWidth().imePadding().navigationBarsPadding()) {
@@ -150,6 +157,11 @@ private fun ProjectForm(
                         ) { Text(e, fontSize = 18.sp) }
                     }
                 }
+            }
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text("Contributes to goal", style = Mitra.type.sm.copy(fontWeight = FontWeight.SemiBold), color = c.muted)
+                OptionPicker(goalOptions, goalId, noneLabel = "None", icon = MitraIcons.Target, onPick = { goalId = it })
+                Text("Completed tasks in this project show as evidence on the goal.", style = Mitra.type.xs, color = c.muted)
             }
         }
         Row(

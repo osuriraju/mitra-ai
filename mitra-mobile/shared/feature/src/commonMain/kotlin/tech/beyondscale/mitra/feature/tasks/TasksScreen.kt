@@ -108,7 +108,8 @@ fun TasksRoute(
         ProjectFormSheet(
             title = "New project",
             confirmLabel = "Create project",
-            onSave = { name, emoji -> vm.onAction(TasksAction.CreateProject(name, emoji)) },
+            goalOptions = state.goalOptions,
+            onSave = { name, emoji, goalId -> vm.onAction(TasksAction.CreateProject(name, emoji, goalId)) },
             onDismiss = { newProject = false },
         )
     }
@@ -435,8 +436,12 @@ private fun LazyListScope.projectsTab(state: TasksUiState, onOpenProject: (Strin
 private fun ProjectCard(p: ProjectCardUi, modifier: Modifier, onClick: () -> Unit) {
     val c = Mitra.colors
     MitraCard(modifier, onClick = onClick) {
-        Box(Modifier.size(40.dp).clip(RoundedCornerShape(10.dp)).background(c.surface2), contentAlignment = Alignment.Center) {
-            Text(p.emoji, fontSize = 20.sp)
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            Box(Modifier.size(40.dp).clip(RoundedCornerShape(10.dp)).background(c.surface2), contentAlignment = Alignment.Center) {
+                Text(p.emoji, fontSize = 20.sp)
+            }
+            Spacer(Modifier.weight(1f))
+            p.goal?.let { MitraChip(it, tone = ChipTone.Accent, icon = MitraIcons.Target) }
         }
         Text(p.name, style = Mitra.type.bodyBold, color = c.text, maxLines = 2)
         Text("${p.open} open task${if (p.open == 1) "" else "s"}", style = Mitra.type.sm, color = c.muted)

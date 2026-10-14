@@ -278,4 +278,35 @@ class TasksRepositoryImplTest {
         assertEquals(TasksRepository.REFRESH_SUPERSEDED, assertIs<AppError.Server>(assertIs<Outcome.Err>(r).error).code)
         assertNotNull(local("t1"))
     }
+
+    @Test fun echoDoesNotReattachDeletedProject() = runTest {
+        val e = env()
+        db.projectsQueries.upsert(Project("p1", "Work").toRow())
+        seed(Task("t1", "In project", projectId = "p1"))
+        server.offline = true
+        e.repo.update("t1", listOf(TaskChange.Title("Renamed")))
+        server.offline = false
+        server.routes["PATCH /api/tasks/t1"] = {
+            // While the PATCH is on the wire the user deletes the project; its DELETE stays queued (network drops).
+            e.repo.deleteProject("p1")
+            server.offline = true
+            json(taskJson("t1", "Renamed", projectId = "p1"))
+        }
+        e.engine.drain()
+        assertEquals("DELETE projects/p1", queue().single().let { "${it.method} ${it.path}" })
+        assertEquals("Renamed", local("t1")!!.title)
+        assertNull(local("t1")!!.projectId)
+    }
+
+    @Test fun projectGoalIdRoundTrips() = runTest {
+        val e = env()
+        server.offline = true
+        val p = e.repo.createProject("Launch", "🚀", "g1")
+        assertEquals("g1", p.goalId)
+        assertEquals("g1", db.projectsQueries.selectById(p.id).executeAsOne().toDomain().goalId)
+        assertEquals("""{"id":"${p.id}","name":"Launch","emoji":"🚀","goalId":"g1"}""", queue().single().body)
+        e.repo.updateProject(p.id, "Launch v2", "🚀", null)
+        assertNull(db.projectsQueries.selectById(p.id).executeAsOne().toDomain().goalId)
+        assertEquals("""{"name":"Launch v2","emoji":"🚀","goalId":null}""", queue().last().body)
+    }
 }

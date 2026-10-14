@@ -8,11 +8,13 @@ import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.datetime.TimeZone
+import tech.beyondscale.mitra.domain.model.GoalState
 import tech.beyondscale.mitra.domain.model.Priority
 import tech.beyondscale.mitra.domain.model.Project
 import tech.beyondscale.mitra.domain.model.Task
 import tech.beyondscale.mitra.domain.model.TaskDraft
 import tech.beyondscale.mitra.feature.common.UiEvent
+import tech.beyondscale.mitra.testing.FakeGoalsRepository
 import tech.beyondscale.mitra.testing.FakeTasksRepository
 import tech.beyondscale.mitra.testing.FixedClock
 import tech.beyondscale.mitra.testing.ViewModelTest
@@ -31,8 +33,8 @@ class TaskEditorViewModelTest : ViewModelTest() {
 
     private class Harness(val vm: TaskEditorViewModel, val events: List<UiEvent<TaskEditorAction>>)
 
-    private fun TestScope.start(repo: FakeTasksRepository): Harness {
-        val vm = TaskEditorViewModel(repo, clock)
+    private fun TestScope.start(repo: FakeTasksRepository, goals: FakeGoalsRepository = FakeGoalsRepository(clock = clock)): Harness {
+        val vm = TaskEditorViewModel(repo, goals, clock)
         val events = mutableListOf<UiEvent<TaskEditorAction>>()
         val d = UnconfinedTestDispatcher(testScheduler)
         backgroundScope.launch(d) { vm.state.collect {} }
@@ -175,5 +177,52 @@ class TaskEditorViewModelTest : ViewModelTest() {
         h.vm.onAction(TaskEditorAction.Edit("t1"))
         runCurrent()
         assertEquals("Edit task", h.vm.state.value.heading)
+    }
+
+    @Test fun goalPickerListsActiveGoalsOnly() = runTest {
+        val goals = FakeGoalsRepository(
+            listOf(
+                linkGoal("g1", "Build ₹1,00,000 emergency fund"),
+                linkGoal("g2", "Run a half marathon", GoalState.Paused),
+                linkGoal("g3", "Read 12 books", GoalState.Completed),
+            ),
+            clock,
+        )
+        val repo = FakeTasksRepository(listOf(t1))
+        val h = start(repo, goals)
+        h.vm.onAction(TaskEditorAction.Edit("t1"))
+        runCurrent()
+        assertEquals(listOf("g1" to "Build ₹1,00,000 emergency fund"), h.vm.state.value.goalOptions)
+        h.vm.onAction(TaskEditorAction.Goal("g1"))
+        h.vm.onAction(TaskEditorAction.Save)
+        runCurrent()
+        assertEquals(listOf("update:t1:GoalId(value=g1)"), repo.calls)
+        assertEquals("g1", repo.taskFlow.value.single().goalId)
+    }
+
+    @Test fun clearingTheGoalSendsNull() = runTest {
+        val goals = FakeGoalsRepository(listOf(linkGoal("g2", "Run a half marathon", GoalState.Paused)), clock)
+        val repo = FakeTasksRepository(listOf(t1.copy(goalId = "g2")))
+        val h = start(repo, goals)
+        h.vm.onAction(TaskEditorAction.Edit("t1"))
+        runCurrent()
+        // The paused goal the task already links to stays selectable, so an edit doesn't silently drop it.
+        assertEquals(listOf("g2" to "Run a half marathon"), h.vm.state.value.goalOptions)
+        assertEquals("g2", h.vm.state.value.form.goalId)
+        h.vm.onAction(TaskEditorAction.Goal(null))
+        h.vm.onAction(TaskEditorAction.Save)
+        runCurrent()
+        assertEquals(listOf("update:t1:GoalId(value=null)"), repo.calls)
+    }
+
+    @Test fun createFromGoalKeepsGoalId() = runTest {
+        val goals = FakeGoalsRepository(listOf(linkGoal("g1", "Build ₹1,00,000 emergency fund")), clock)
+        val repo = FakeTasksRepository()
+        val h = start(repo, goals)
+        h.vm.onAction(TaskEditorAction.Open(TaskDraft("x", goalId = "g1")))
+        assertEquals("g1", h.vm.state.value.form.goalId)
+        h.vm.onAction(TaskEditorAction.Save)
+        runCurrent()
+        assertEquals("g1", repo.taskFlow.value.single().goalId)
     }
 }

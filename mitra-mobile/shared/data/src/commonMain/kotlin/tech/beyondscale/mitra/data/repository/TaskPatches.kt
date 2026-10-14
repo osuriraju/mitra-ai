@@ -32,6 +32,7 @@ internal fun applyChanges(old: Task, changes: List<TaskChange>, today: String): 
         is TaskChange.Recurring -> { t = t.copy(recurring = c.value); patch["recurring"] = JsonPrimitive(c.value) }
         is TaskChange.Someday -> { t = t.copy(someday = c.value); patch["someday"] = JsonPrimitive(c.value) }
         is TaskChange.Parent -> { t = t.copy(parentId = c.value); patch["parentId"] = JsonPrimitive(c.value) }
+        is TaskChange.GoalId -> { t = t.copy(goalId = c.value); patch["goalId"] = JsonPrimitive(c.value) }
     }
     return t to JsonObject(patch)
 }

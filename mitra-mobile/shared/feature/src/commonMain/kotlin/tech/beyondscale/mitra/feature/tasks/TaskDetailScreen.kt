@@ -89,6 +89,7 @@ fun TaskDetailRoute(
     onOpenTask: (String) -> Unit,
     onFocus: () -> Unit,
     onDeleted: (List<Task>) -> Unit,
+    onOpenGoal: (String) -> Unit = {},
     vm: TaskDetailViewModel = koinViewModel { parametersOf(id) },
 ) {
     val state by vm.state.collectAsStateWithLifecycle()
@@ -104,7 +105,7 @@ fun TaskDetailRoute(
             back()
         }
     }
-    TaskDetailScreen(state, vm::onAction, id, onBack, onEdit, onAddTask, onOpenTask, onFocus)
+    TaskDetailScreen(state, vm::onAction, id, onBack, onEdit, onAddTask, onOpenTask, onFocus, onOpenGoal)
 }
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -118,6 +119,7 @@ fun TaskDetailScreen(
     onAddTask: (TaskDraft) -> Unit,
     onOpenTask: (String) -> Unit,
     onFocus: () -> Unit,
+    onOpenGoal: (String) -> Unit = {},
 ) {
     val c = Mitra.colors
     var menu by rememberSaveable { mutableStateOf(false) }
@@ -165,11 +167,12 @@ fun TaskDetailScreen(
                         color = if (state.done) c.muted else c.text,
                         modifier = Modifier.semantics { heading() },
                     )
-                    val chips = state.priChip != null || state.project != null || state.ai
+                    val chips = state.priChip != null || state.project != null || state.goal != null || state.ai
                     if (chips) {
                         FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                             state.priChip?.let { (text, tone) -> MitraChip(text, tone = tone, icon = MitraIcons.Flag) }
                             state.project?.let { p -> MitraChip(p.name, icon = MitraIcons.Folder) }
+                            state.goal?.let { g -> MitraChip(g.name, tone = ChipTone.Accent, icon = MitraIcons.Target, onClick = { onOpenGoal(g.id) }) }
                             if (state.ai) MitraChip("Created by AI", tone = ChipTone.Accent, icon = MitraIcons.Sparkles)
                         }
                     }
@@ -218,6 +221,23 @@ fun TaskDetailScreen(
                         selectedIndex = state.status.ordinal,
                         onSelect = { onAction(TaskDetailAction.SetStatus(TaskStatus.entries[it])) },
                     )
+                }
+            }
+
+            // Linked (web TaskDetail; notes arrive in Phase 5)
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text("Linked", style = Mitra.type.sm.copy(fontWeight = FontWeight.SemiBold), color = c.muted)
+                if (state.goal == null && state.amountLabel == null) {
+                    Text("Nothing linked yet — set a goal in Edit.", style = Mitra.type.xs, color = c.muted)
+                } else {
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        val goal = state.goal
+                        val label = state.linkedGoalLabel
+                        if (goal != null && label != null) {
+                            MitraChip(label, tone = ChipTone.Outline, icon = MitraIcons.Target, onClick = { onOpenGoal(goal.id) })
+                        }
+                        state.amountLabel?.let { MitraChip(it, tone = ChipTone.Outline, icon = MitraIcons.Wallet) }
+                    }
                 }
             }
 

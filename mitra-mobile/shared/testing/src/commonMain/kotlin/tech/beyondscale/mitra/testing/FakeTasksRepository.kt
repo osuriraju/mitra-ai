@@ -38,7 +38,7 @@ class FakeTasksRepository(
         val t = Task(
             id = "new${++taskSeq}", title = draft.title.trim(), projectId = draft.projectId, due = draft.due, time = draft.time,
             estMin = draft.estMin, pri = draft.pri, status = draft.status, done = draft.status == TaskStatus.Done,
-            notes = draft.notes, recurring = draft.recurring, parentId = draft.parentId, someday = draft.someday,
+            notes = draft.notes, recurring = draft.recurring, parentId = draft.parentId, someday = draft.someday, goalId = draft.goalId,
         )
         calls += "create:${t.title}"
         taskFlow.update { listOf(t) + it }
@@ -71,18 +71,19 @@ class FakeTasksRepository(
         taskFlow.update { removed + it }
     }
 
-    override suspend fun createProject(name: String, emoji: String): Project {
+    /** Calls keep the Phase 2 shape; a goal link shows up in [projectFlow]. */
+    override suspend fun createProject(name: String, emoji: String, goalId: String?): Project {
         projectGate?.await()
-        val p = Project("proj${++projectSeq}", name.trim(), emoji)
+        val p = Project("proj${++projectSeq}", name.trim(), emoji, goalId)
         calls += "createProject:${p.name}"
         projectFlow.update { it + p }
         return p
     }
 
-    override suspend fun updateProject(id: String, name: String, emoji: String) {
+    override suspend fun updateProject(id: String, name: String, emoji: String, goalId: String?) {
         projectGate?.await()
         calls += "updateProject:$id:$name:$emoji"
-        projectFlow.update { list -> list.map { if (it.id == id) it.copy(name = name, emoji = emoji) else it } }
+        projectFlow.update { list -> list.map { if (it.id == id) it.copy(name = name, emoji = emoji, goalId = goalId) else it } }
     }
 
     override suspend fun deleteProject(id: String) {
@@ -103,5 +104,6 @@ class FakeTasksRepository(
         is TaskChange.Recurring -> t.copy(recurring = c.value)
         is TaskChange.Someday -> t.copy(someday = c.value)
         is TaskChange.Parent -> t.copy(parentId = c.value)
+        is TaskChange.GoalId -> t.copy(goalId = c.value)
     }
 }

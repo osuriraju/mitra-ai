@@ -11,6 +11,7 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.datetime.TimeZone
 import tech.beyondscale.mitra.core.AppError
 import tech.beyondscale.mitra.core.Outcome
+import tech.beyondscale.mitra.domain.model.GoalState
 import tech.beyondscale.mitra.domain.model.Priority
 import tech.beyondscale.mitra.domain.model.Project
 import tech.beyondscale.mitra.domain.model.Task
@@ -19,6 +20,7 @@ import tech.beyondscale.mitra.domain.tasks.TaskCounts
 import tech.beyondscale.mitra.domain.tasks.TaskFilters
 import tech.beyondscale.mitra.feature.common.HapticKind
 import tech.beyondscale.mitra.feature.common.UiEvent
+import tech.beyondscale.mitra.testing.FakeGoalsRepository
 import tech.beyondscale.mitra.testing.FakeTasksRepository
 import tech.beyondscale.mitra.testing.FixedClock
 import tech.beyondscale.mitra.testing.ViewModelTest
@@ -42,8 +44,8 @@ class TasksViewModelTest : ViewModelTest() {
 
     private class Harness(val vm: TasksViewModel, val events: List<UiEvent<TasksAction>>)
 
-    private fun TestScope.start(repo: FakeTasksRepository): Harness {
-        val vm = TasksViewModel(repo, clock)
+    private fun TestScope.start(repo: FakeTasksRepository, goals: FakeGoalsRepository = FakeGoalsRepository(clock = clock)): Harness {
+        val vm = TasksViewModel(repo, goals, clock)
         val events = mutableListOf<UiEvent<TasksAction>>()
         val d = UnconfinedTestDispatcher(testScheduler)
         backgroundScope.launch(d) { vm.state.collect {} }
@@ -260,6 +262,29 @@ class TasksViewModelTest : ViewModelTest() {
         h.vm.onAction(TasksAction.CreateProject("   ", "🚀"))
         runCurrent()
         assertEquals(listOf("createProject:Work"), repo.calls)
+    }
+
+    @Test fun projectCardsShowShortGoalNames() = runTest {
+        val goals = FakeGoalsRepository(
+            listOf(
+                linkGoal("g1", "Build ₹1,00,000 emergency fund"),
+                linkGoal("g2", "Ship Mitra v1 to the Play Store", GoalState.Completed),
+            ),
+            clock,
+        )
+        val projects = listOf(project.copy(goalId = "g1"), Project("p2", "Launch", goalId = "g2"), Project("p3", "Home", goalId = "gone"))
+        val s = start(FakeTasksRepository(fixtures(), projects), goals).vm.state.value
+        // Web ProjectsScreen: leading "Build " / "Ship " dropped, at most 22 characters; unknown goal → no chip.
+        assertEquals(listOf("₹1,00,000 emergency fu", "Mitra v1 to the Play S", null), s.projects.map { it.goal })
+        assertEquals(listOf("g1", "g2"), s.goalOptions.map { it.first })
+    }
+
+    @Test fun createProjectWithGoal() = runTest {
+        val repo = FakeTasksRepository(fixtures(), listOf(project))
+        val h = start(repo, FakeGoalsRepository(listOf(linkGoal("g1", "Ship Mitra v1")), clock))
+        h.vm.onAction(TasksAction.CreateProject("Launch", "🚀", "g1"))
+        runCurrent()
+        assertEquals("g1", repo.projectFlow.value.last().goalId)
     }
 
     private fun TestScope.selecting(repo: FakeTasksRepository, vararg ids: String): Harness {

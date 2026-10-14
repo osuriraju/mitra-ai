@@ -9,11 +9,13 @@ import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.datetime.TimeZone
+import tech.beyondscale.mitra.domain.model.GoalState
 import tech.beyondscale.mitra.domain.model.Project
 import tech.beyondscale.mitra.domain.model.Task
 import tech.beyondscale.mitra.domain.model.TaskStatus
 import tech.beyondscale.mitra.feature.common.HapticKind
 import tech.beyondscale.mitra.feature.common.UiEvent
+import tech.beyondscale.mitra.testing.FakeGoalsRepository
 import tech.beyondscale.mitra.testing.FakeTasksRepository
 import tech.beyondscale.mitra.testing.FixedClock
 import tech.beyondscale.mitra.testing.ViewModelTest
@@ -38,8 +40,8 @@ class ProjectDetailViewModelTest : ViewModelTest() {
 
     private class Harness(val vm: ProjectDetailViewModel, val events: List<UiEvent<ProjectDetailAction>>)
 
-    private fun TestScope.start(repo: FakeTasksRepository, id: String = "p1"): Harness {
-        val vm = ProjectDetailViewModel(id, repo, clock)
+    private fun TestScope.start(repo: FakeTasksRepository, id: String = "p1", goals: FakeGoalsRepository = FakeGoalsRepository(clock = clock)): Harness {
+        val vm = ProjectDetailViewModel(id, repo, goals, clock)
         val events = mutableListOf<UiEvent<ProjectDetailAction>>()
         val d = UnconfinedTestDispatcher(testScheduler)
         backgroundScope.launch(d) { vm.state.collect {} }
@@ -63,7 +65,7 @@ class ProjectDetailViewModelTest : ViewModelTest() {
     @Test fun editRenames() = runTest {
         val repo = FakeTasksRepository(fixtures(), listOf(project, other))
         val h = start(repo)
-        h.vm.onAction(ProjectDetailAction.Edit("  Home  ", "🏠"))
+        h.vm.onAction(ProjectDetailAction.Edit("  Home  ", "🏠", null))
         runCurrent()
         assertEquals(listOf("updateProject:p1:Home:🏠"), repo.calls)
         assertEquals("Home", h.vm.state.value.name)
@@ -86,8 +88,8 @@ class ProjectDetailViewModelTest : ViewModelTest() {
         val gate = CompletableDeferred<Unit>()
         val repo = FakeTasksRepository(fixtures(), listOf(project, other)).apply { projectGate = gate }
         val h = start(repo)
-        h.vm.onAction(ProjectDetailAction.Edit("Home", "🏠"))
-        h.vm.onAction(ProjectDetailAction.Edit("Home", "🏠"))
+        h.vm.onAction(ProjectDetailAction.Edit("Home", "🏠", null))
+        h.vm.onAction(ProjectDetailAction.Edit("Home", "🏠", null))
         runCurrent()
         gate.complete(Unit)
         runCurrent()
@@ -97,7 +99,7 @@ class ProjectDetailViewModelTest : ViewModelTest() {
     @Test fun editWithBlankNameIsIgnored() = runTest {
         val repo = FakeTasksRepository(fixtures(), listOf(project))
         val h = start(repo)
-        h.vm.onAction(ProjectDetailAction.Edit("  ", "🏠"))
+        h.vm.onAction(ProjectDetailAction.Edit("  ", "🏠", null))
         runCurrent()
         assertEquals(emptyList(), repo.calls)
     }
@@ -152,5 +154,32 @@ class ProjectDetailViewModelTest : ViewModelTest() {
         val s = start(FakeTasksRepository(fixtures(), listOf(project)), "nope").vm.state.value
         assertTrue(s.loaded)
         assertTrue(s.notFound)
+    }
+
+    @Test fun showsGoalAndDueChips() = runTest {
+        val goals = FakeGoalsRepository(
+            listOf(linkGoal("g1", "Ship Mitra v1", due = "2027-04-12"), linkGoal("g2", "Read 12 books", GoalState.Completed)),
+            clock,
+        )
+        val repo = FakeTasksRepository(fixtures(), listOf(project.copy(goalId = "g1"), other.copy(goalId = "gone")))
+        val s = start(repo, goals = goals).vm.state.value
+        assertEquals(GoalChip("g1", "Ship Mitra v1", "2027-04-12"), s.goal)
+        assertEquals("Due Mon 12 Apr", s.goalDueLabel) // web fmtDay(due, { relative: false }) keeps the weekday
+        assertEquals("g1", s.goalId)
+        // Project form: None + all goals, any state (web ProjectForm).
+        assertEquals(listOf("g1" to "Ship Mitra v1", "g2" to "Read 12 books"), s.goalOptions)
+        val unknown = start(repo, "p2", goals).vm.state.value
+        assertEquals(null, unknown.goal)
+        assertEquals(null, unknown.goalDueLabel)
+    }
+
+    @Test fun editChangesTheGoal() = runTest {
+        val goals = FakeGoalsRepository(listOf(linkGoal("g1", "Ship Mitra v1")), clock)
+        val repo = FakeTasksRepository(fixtures(), listOf(project.copy(goalId = "g1"), other))
+        val h = start(repo, goals = goals)
+        h.vm.onAction(ProjectDetailAction.Edit("Mitra", "🚀", null))
+        runCurrent()
+        assertEquals(null, repo.projectFlow.value.first { it.id == "p1" }.goalId)
+        assertEquals(null, h.vm.state.value.goal)
     }
 }

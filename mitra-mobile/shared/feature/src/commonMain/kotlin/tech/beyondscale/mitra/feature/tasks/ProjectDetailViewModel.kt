@@ -13,10 +13,13 @@ import kotlinx.coroutines.launch
 import tech.beyondscale.mitra.core.AppClock
 import tech.beyondscale.mitra.core.addDays
 import tech.beyondscale.mitra.core.dayFlow
+import tech.beyondscale.mitra.core.fmtDay
 import tech.beyondscale.mitra.core.today
+import tech.beyondscale.mitra.domain.model.Goal
 import tech.beyondscale.mitra.domain.model.Project
 import tech.beyondscale.mitra.domain.model.Task
 import tech.beyondscale.mitra.domain.model.TaskChange
+import tech.beyondscale.mitra.domain.repository.GoalsRepository
 import tech.beyondscale.mitra.domain.repository.TasksRepository
 import tech.beyondscale.mitra.domain.tasks.projectStats
 import tech.beyondscale.mitra.domain.tasks.undoCompletion
@@ -36,6 +39,13 @@ data class ProjectDetailUiState(
     val pct: Int = 0,
     /** The project's tasks, not-done first (web list view). */
     val rows: List<TaskRowUi> = emptyList(),
+    /** The project's goal link as stored (the edit form's initial value), even when the goal is unknown. */
+    val goalId: String? = null,
+    val goal: GoalChip? = null,
+    /** `"Due Mon 12 Apr"` for the linked goal (web `fmtDay(g.due, { relative: false })`). */
+    val goalDueLabel: String? = null,
+    /** Edit form "Contributes to goal": every goal, any state (web `ProjectForm`), id → name. */
+    val goalOptions: List<Pair<String, String>> = emptyList(),
 )
 
 sealed interface ProjectDetailAction {
@@ -44,11 +54,17 @@ sealed interface ProjectDetailAction {
     /** Swipe left: move to tomorrow (as on the Tasks screen). */
     data class Reschedule(val id: String) : ProjectDetailAction
     data class SetDue(val id: String, val due: String?) : ProjectDetailAction
-    data class Edit(val name: String, val emoji: String) : ProjectDetailAction
+    /** [goalId] null unlinks the goal. */
+    data class Edit(val name: String, val emoji: String, val goalId: String?) : ProjectDetailAction
     data object Delete : ProjectDetailAction
 }
 
-class ProjectDetailViewModel(private val id: String, private val tasks: TasksRepository, private val clock: AppClock) : ViewModel() {
+class ProjectDetailViewModel(
+    private val id: String,
+    private val tasks: TasksRepository,
+    private val goals: GoalsRepository,
+    private val clock: AppClock,
+) : ViewModel() {
     private val queue = EventQueue<ProjectDetailAction>()
     val events: Flow<UiEvent<ProjectDetailAction>> = queue.events
 
@@ -57,7 +73,7 @@ class ProjectDetailViewModel(private val id: String, private val tasks: TasksRep
     /** Set synchronously on Edit so a double tap on Save can't launch a second update. */
     private var editing = false
 
-    val state: StateFlow<ProjectDetailUiState> = combine(tasks.tasks, tasks.projects, clock.dayFlow(), deleting, ::build)
+    val state: StateFlow<ProjectDetailUiState> = combine(tasks.tasks, tasks.projects, goals.goals, clock.dayFlow(), deleting, ::build)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ProjectDetailUiState())
 
     fun onAction(a: ProjectDetailAction) {
@@ -77,7 +93,7 @@ class ProjectDetailViewModel(private val id: String, private val tasks: TasksRep
                 editing = true
                 launch {
                     try {
-                        tasks.updateProject(id, a.name.trim(), a.emoji)
+                        tasks.updateProject(id, a.name.trim(), a.emoji, a.goalId)
                         queue.send(UiEvent.Snack("Project updated"))
                     } finally {
                         editing = false
@@ -99,11 +115,12 @@ class ProjectDetailViewModel(private val id: String, private val tasks: TasksRep
 
     private suspend fun find(taskId: String): Task? = tasks.tasks.first().firstOrNull { it.id == taskId }
 
-    private fun build(all: List<Task>, projects: List<Project>, today: String, deleting: Boolean): ProjectDetailUiState {
+    private fun build(all: List<Task>, projects: List<Project>, goals: List<Goal>, today: String, deleting: Boolean): ProjectDetailUiState {
         val p = projects.firstOrNull { it.id == id }
             ?: return ProjectDetailUiState(loaded = true, notFound = !deleting, today = today)
         val byId = projects.associateBy { it.id }
         val stats = projectStats(all, id)
+        val goal = goalChip(goals, p.goalId)
         return ProjectDetailUiState(
             loaded = true,
             today = today,
@@ -113,6 +130,10 @@ class ProjectDetailViewModel(private val id: String, private val tasks: TasksRep
             done = stats.done,
             pct = stats.pct,
             rows = all.filter { it.projectId == id }.sortedBy { it.done }.map { taskRowUi(it, all, byId, today, showProject = false) },
+            goalId = p.goalId,
+            goal = goal,
+            goalDueLabel = goal?.let { "Due " + fmtDay(it.due, today, relative = false) },
+            goalOptions = goals.map { it.id to it.name },
         )
     }
 }

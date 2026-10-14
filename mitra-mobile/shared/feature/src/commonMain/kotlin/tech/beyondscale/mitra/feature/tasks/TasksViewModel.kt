@@ -18,10 +18,12 @@ import tech.beyondscale.mitra.core.addDays
 import tech.beyondscale.mitra.core.dayFlow
 import tech.beyondscale.mitra.core.minsToHm
 import tech.beyondscale.mitra.core.today
+import tech.beyondscale.mitra.domain.model.Goal
 import tech.beyondscale.mitra.domain.model.Project
 import tech.beyondscale.mitra.domain.model.Task
 import tech.beyondscale.mitra.domain.model.TaskChange
 import tech.beyondscale.mitra.domain.model.TaskDraft
+import tech.beyondscale.mitra.domain.repository.GoalsRepository
 import tech.beyondscale.mitra.domain.repository.TasksRepository
 import tech.beyondscale.mitra.domain.tasks.Completion
 import tech.beyondscale.mitra.domain.tasks.TaskCounts
@@ -49,7 +51,8 @@ import tech.beyondscale.mitra.feature.common.toggleTask
 enum class TasksTab(val label: String) { Inbox("Inbox"), Today("Today"), Upcoming("Upcoming"), Projects("Projects") }
 
 data class UpcomingGroupUi(val key: String, val label: String, val rows: List<TaskRowUi>)
-data class ProjectCardUi(val id: String, val emoji: String, val name: String, val open: Int, val pct: Int)
+/** [goal]: the linked goal's short name (see [shortGoalName]), null when none or unknown. */
+data class ProjectCardUi(val id: String, val emoji: String, val name: String, val open: Int, val pct: Int, val goal: String? = null)
 
 data class TasksUiState(
     val tab: TasksTab = TasksTab.Today,
@@ -72,6 +75,8 @@ data class TasksUiState(
     val projects: List<ProjectCardUi> = emptyList(),
     val filters: TaskFilters = TaskFilters(),
     val projectOptions: List<Project> = emptyList(),
+    /** New-project form "Contributes to goal": every goal, any state (web `ProjectForm`), id → name. */
+    val goalOptions: List<Pair<String, String>> = emptyList(),
     val refreshing: Boolean = false,
     /** Ids picked in multi-select mode (empty when not selecting). */
     val selection: Set<String> = emptySet(),
@@ -93,7 +98,7 @@ sealed interface TasksAction {
     data class SetFilters(val filters: TaskFilters) : TasksAction
     data object ToggleShowDone : TasksAction
     data object Refresh : TasksAction
-    data class CreateProject(val name: String, val emoji: String) : TasksAction
+    data class CreateProject(val name: String, val emoji: String, val goalId: String? = null) : TasksAction
     data class LongPress(val id: String) : TasksAction
     data class ToggleSelect(val id: String) : TasksAction
     data object ClearSelection : TasksAction
@@ -106,7 +111,11 @@ sealed interface TasksAction {
     data class RestoreDeleted(val removed: List<Task>) : TasksAction
 }
 
-class TasksViewModel(private val tasks: TasksRepository, private val clock: AppClock) : ViewModel() {
+class TasksViewModel(
+    private val tasks: TasksRepository,
+    private val goals: GoalsRepository,
+    private val clock: AppClock,
+) : ViewModel() {
     private data class Local(
         val tab: TasksTab = TasksTab.Today,
         val filters: TaskFilters = TaskFilters(),
@@ -119,7 +128,7 @@ class TasksViewModel(private val tasks: TasksRepository, private val clock: AppC
     private val queue = EventQueue<TasksAction>()
     val events: Flow<UiEvent<TasksAction>> = queue.events
 
-    val state: StateFlow<TasksUiState> = combine(tasks.tasks, tasks.projects, clock.dayFlow(), local, ::build)
+    val state: StateFlow<TasksUiState> = combine(tasks.tasks, tasks.projects, goals.goals, clock.dayFlow(), local, ::build)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), TasksUiState())
 
     fun onAction(a: TasksAction) {
@@ -193,7 +202,7 @@ class TasksViewModel(private val tasks: TasksRepository, private val clock: AppC
                 creatingProject = true
                 launch {
                     try {
-                        val p = tasks.createProject(a.name.trim(), a.emoji)
+                        val p = tasks.createProject(a.name.trim(), a.emoji, a.goalId)
                         queue.send(UiEvent.Snack("Project created · ${p.name}"))
                     } finally {
                         creatingProject = false
@@ -274,8 +283,9 @@ class TasksViewModel(private val tasks: TasksRepository, private val clock: AppC
         }
     }
 
-    private fun build(all: List<Task>, projects: List<Project>, today: String, l: Local): TasksUiState {
+    private fun build(all: List<Task>, projects: List<Project>, goals: List<Goal>, today: String, l: Local): TasksUiState {
         val byId = projects.associateBy { it.id }
+        val goalNames = goals.associate { it.id to it.name }
         fun row(t: Task) = taskRowUi(t, all, byId, today)
         val f = l.filters
         val planned = plannedMin(all, today)
@@ -296,9 +306,12 @@ class TasksViewModel(private val tasks: TasksRepository, private val clock: AppC
             plannedFraction = if (planned > 0) dm.toFloat() / planned else 0f,
             focusLine = focusLine(all, today),
             upcoming = groupUpcoming(all.applyFilters(f, today), today).map { (key, ts) -> UpcomingGroupUi(key, upcomingLabel(key, today), ts.map(::row)) },
-            projects = projects.map { p -> projectStats(all, p.id).let { s -> ProjectCardUi(p.id, p.emoji, p.name, s.open, s.pct) } },
+            projects = projects.map { p ->
+                projectStats(all, p.id).let { s -> ProjectCardUi(p.id, p.emoji, p.name, s.open, s.pct, p.goalId?.let(goalNames::get)?.let(::shortGoalName)) }
+            },
             filters = f,
             projectOptions = projects,
+            goalOptions = goals.map { it.id to it.name },
             refreshing = l.refreshing,
             selection = l.selection.filterTo(LinkedHashSet()) { id -> all.any { it.id == id } },
         )

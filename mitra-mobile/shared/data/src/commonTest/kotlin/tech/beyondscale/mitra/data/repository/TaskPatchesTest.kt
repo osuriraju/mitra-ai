@@ -33,4 +33,14 @@ class TaskPatchesTest {
         assertEquals(TaskStatus.Todo, completion(closed, false, "2026-10-14").first.status)
         assertEquals(TaskStatus.InProgress, completion(doing.copy(done = true), false, "2026-10-14").first.status)
     }
+
+    @Test fun goalIdNullClears() {
+        val linked = base.copy(goalId = "g1")
+        val (cleared, p1) = applyChanges(linked, listOf(TaskChange.GoalId(null)), "2026-10-14")
+        assertEquals(null, cleared.goalId)
+        assertEquals("""{"goalId":null}""", p1.toString())
+        val (set, p2) = applyChanges(base, listOf(TaskChange.GoalId("g1")), "2026-10-14")
+        assertEquals("g1", set.goalId)
+        assertEquals("""{"goalId":"g1"}""", p2.toString())
+    }
 }

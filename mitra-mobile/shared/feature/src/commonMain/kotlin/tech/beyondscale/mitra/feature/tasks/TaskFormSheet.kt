@@ -32,6 +32,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.semantics.heading
@@ -118,6 +119,16 @@ private fun TaskForm(state: TaskEditorUiState, onAction: (TaskEditorAction) -> U
                         MitraChip("${p.emoji} ${p.name}", tone = ChipTone.Outline, selected = f.projectId == p.id, onClick = { onAction(TaskEditorAction.Project(p.id)) })
                     }
                 }
+            }
+
+            Field("Links to goal") {
+                OptionPicker(
+                    options = state.goalOptions,
+                    selectedId = f.goalId,
+                    noneLabel = "None",
+                    icon = MitraIcons.Target,
+                    onPick = { onAction(TaskEditorAction.Goal(it)) },
+                )
             }
 
             if (today.isNotEmpty()) {
@@ -214,21 +225,37 @@ private fun TaskForm(state: TaskEditorUiState, onAction: (TaskEditorAction) -> U
 }
 
 @Composable
-private fun ParentPicker(state: TaskEditorUiState, onAction: (TaskEditorAction) -> Unit) {
+private fun ParentPicker(state: TaskEditorUiState, onAction: (TaskEditorAction) -> Unit) = OptionPicker(
+    options = state.parentOptions.map { it.id to it.title },
+    selectedId = state.form.parentId,
+    noneLabel = "None — top-level task",
+    icon = MitraIcons.Layers,
+    onPick = { onAction(TaskEditorAction.Parent(it)) },
+)
+
+/** A chip that opens a dropdown of [options] (id → label) after a leading "none" entry (the web's `<Select>`). */
+@Composable
+internal fun OptionPicker(
+    options: List<Pair<String, String>>,
+    selectedId: String?,
+    noneLabel: String,
+    icon: ImageVector,
+    onPick: (String?) -> Unit,
+) {
     var open by remember { mutableStateOf(false) }
-    val current = state.parentOptions.firstOrNull { it.id == state.form.parentId }
+    val current = options.firstOrNull { it.first == selectedId }
     Box {
         MitraChip(
-            "${current?.title ?: "None — top-level task"} ▾",
+            "${current?.second ?: noneLabel} ▾",
             tone = ChipTone.Outline,
-            icon = MitraIcons.Layers,
+            icon = icon,
             selected = current != null,
             onClick = { open = true },
         )
         DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
-            DropdownMenuItem(text = { Text("None — top-level task", style = Mitra.type.body) }, onClick = { open = false; onAction(TaskEditorAction.Parent(null)) })
-            state.parentOptions.forEach { p ->
-                DropdownMenuItem(text = { Text(p.title, style = Mitra.type.body, maxLines = 1) }, onClick = { open = false; onAction(TaskEditorAction.Parent(p.id)) })
+            DropdownMenuItem(text = { Text(noneLabel, style = Mitra.type.body) }, onClick = { open = false; onPick(null) })
+            options.forEach { (id, label) ->
+                DropdownMenuItem(text = { Text(label, style = Mitra.type.body, maxLines = 1) }, onClick = { open = false; onPick(id) })
             }
         }
     }

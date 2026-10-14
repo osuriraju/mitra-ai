@@ -71,4 +71,6 @@ sealed interface TaskChange {
     data class Recurring(val value: String?) : TaskChange
     data class Someday(val value: Boolean) : TaskChange
     data class Parent(val value: String?) : TaskChange
+    /** Links the task to a goal (evidence only; the goal's progress never derives from it). Null unlinks. */
+    data class GoalId(val value: String?) : TaskChange
 }

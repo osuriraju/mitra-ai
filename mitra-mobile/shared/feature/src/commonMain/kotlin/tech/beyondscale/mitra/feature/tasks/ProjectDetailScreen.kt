@@ -2,6 +2,8 @@ package tech.beyondscale.mitra.feature.tasks
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -38,6 +40,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import org.koin.compose.viewmodel.koinViewModel
 import org.koin.core.parameter.parametersOf
 import tech.beyondscale.mitra.designsystem.components.ButtonKind
+import tech.beyondscale.mitra.designsystem.components.ChipTone
 import tech.beyondscale.mitra.designsystem.components.EmptyState
 import tech.beyondscale.mitra.designsystem.components.Eyebrow
 import tech.beyondscale.mitra.designsystem.components.MitraButton
@@ -57,11 +60,12 @@ fun ProjectDetailRoute(
     onBack: () -> Unit,
     onOpenTask: (String) -> Unit,
     onAddTask: (TaskDraft) -> Unit,
+    onOpenGoal: (String) -> Unit = {},
     vm: ProjectDetailViewModel = koinViewModel { parametersOf(id) },
 ) {
     val state by vm.state.collectAsStateWithLifecycle()
     EventEffect(vm.events, vm::onAction, onClose = onBack)
-    ProjectDetailScreen(state, vm::onAction, id, onBack, onOpenTask, onAddTask)
+    ProjectDetailScreen(state, vm::onAction, id, onBack, onOpenTask, onAddTask, onOpenGoal)
 }
 
 /** Project detail (web `ProjectDetailScreen`), list view only — the web's kanban board is not ported to the phone. */
@@ -73,6 +77,7 @@ fun ProjectDetailScreen(
     onBack: () -> Unit,
     onOpenTask: (String) -> Unit,
     onAddTask: (TaskDraft) -> Unit,
+    onOpenGoal: (String) -> Unit = {},
 ) {
     val c = Mitra.colors
     var menu by rememberSaveable { mutableStateOf(false) }
@@ -103,7 +108,7 @@ fun ProjectDetailScreen(
         }
 
         LazyColumn(Modifier.weight(1f).fillMaxWidth(), contentPadding = PaddingValues(bottom = 24.dp)) {
-            item(key = "header") { Header(state, addTask) }
+            item(key = "header") { Header(state, addTask, onOpenGoal) }
             if (state.rows.isEmpty()) {
                 item(key = "empty") {
                     MitraCard(Modifier.padding(horizontal = MitraDimens.pad), contentPadding = PaddingValues(0.dp)) {
@@ -134,7 +139,9 @@ fun ProjectDetailScreen(
             confirmLabel = "Save",
             initialName = state.name,
             initialEmoji = state.emoji,
-            onSave = { name, emoji -> onAction(ProjectDetailAction.Edit(name, emoji)) },
+            goalOptions = state.goalOptions,
+            initialGoalId = state.goalId,
+            onSave = { name, emoji, goalId -> onAction(ProjectDetailAction.Edit(name, emoji, goalId)) },
             onDismiss = { edit = false },
         )
     }
@@ -153,8 +160,9 @@ fun ProjectDetailScreen(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun Header(state: ProjectDetailUiState, onAddTask: () -> Unit) {
+private fun Header(state: ProjectDetailUiState, onAddTask: () -> Unit, onOpenGoal: (String) -> Unit) {
     val c = Mitra.colors
     Column(
         Modifier.fillMaxWidth().padding(horizontal = MitraDimens.pad).padding(bottom = MitraDimens.gap),
@@ -170,7 +178,9 @@ private fun Header(state: ProjectDetailUiState, onAddTask: () -> Unit) {
                 Text(state.name, style = Mitra.type.h1, color = c.text, modifier = Modifier.semantics { heading() })
             }
         }
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            state.goal?.let { g -> MitraChip(g.name, tone = ChipTone.Accent, icon = MitraIcons.Target, onClick = { onOpenGoal(g.id) }) }
+            state.goalDueLabel?.let { MitraChip(it, icon = MitraIcons.Flag) }
             MitraChip("${state.open} open · ${state.done} done")
         }
         MitraProgressBar(

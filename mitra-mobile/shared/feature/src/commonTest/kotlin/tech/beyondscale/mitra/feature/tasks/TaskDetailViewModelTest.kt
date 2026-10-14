@@ -33,6 +33,7 @@ import tech.beyondscale.mitra.domain.tasks.SubProgress
 import tech.beyondscale.mitra.domain.tasks.nextMonday
 import tech.beyondscale.mitra.feature.common.HapticKind
 import tech.beyondscale.mitra.feature.common.UiEvent
+import tech.beyondscale.mitra.testing.FakeGoalsRepository
 import tech.beyondscale.mitra.testing.FakeTasksRepository
 import tech.beyondscale.mitra.testing.FixedClock
 import tech.beyondscale.mitra.testing.ViewModelTest
@@ -60,7 +61,12 @@ class TaskDetailViewModelTest : ViewModelTest() {
     /** Runs app-scope work (the last-moment notes flush) immediately. */
     private fun TestScope.appScope() = ApplicationScope(CoroutineScope(UnconfinedTestDispatcher(testScheduler)))
 
-    private fun TestScope.start(repo: TasksRepository, id: String = "t1", vm: TaskDetailViewModel = TaskDetailViewModel(id, repo, clock, appScope())): Harness {
+    private fun TestScope.start(
+        repo: TasksRepository,
+        id: String = "t1",
+        goals: FakeGoalsRepository = FakeGoalsRepository(clock = clock),
+        vm: TaskDetailViewModel = TaskDetailViewModel(id, repo, goals, clock, appScope()),
+    ): Harness {
         val events = mutableListOf<UiEvent<TaskDetailAction>>()
         val d = UnconfinedTestDispatcher(testScheduler)
         backgroundScope.launch(d) { vm.state.collect {} }
@@ -174,7 +180,7 @@ class TaskDetailViewModelTest : ViewModelTest() {
     @Test fun pendingNotesAreSavedWhenTheViewModelIsCleared() = runTest {
         val repo = FakeTasksRepository(listOf(task))
         val store = ViewModelStore()
-        val vm = ViewModelProvider.create(store, viewModelFactory { initializer { TaskDetailViewModel("t1", repo, clock, appScope()) } })[TaskDetailViewModel::class]
+        val vm = ViewModelProvider.create(store, viewModelFactory { initializer { TaskDetailViewModel("t1", repo, FakeGoalsRepository(clock = clock), clock, appScope()) } })[TaskDetailViewModel::class]
         start(repo, vm = vm)
         vm.onAction(TaskDetailAction.Notes("last words"))
         store.clear()
@@ -221,7 +227,7 @@ class TaskDetailViewModelTest : ViewModelTest() {
         val inner = FakeTasksRepository(listOf(task))
         val repo = GatedRepository(inner)
         val store = ViewModelStore()
-        val vm = ViewModelProvider.create(store, viewModelFactory { initializer { TaskDetailViewModel("t1", repo, clock, appScope()) } })[TaskDetailViewModel::class]
+        val vm = ViewModelProvider.create(store, viewModelFactory { initializer { TaskDetailViewModel("t1", repo, FakeGoalsRepository(clock = clock), clock, appScope()) } })[TaskDetailViewModel::class]
         start(repo, vm = vm)
         vm.onAction(TaskDetailAction.Notes("a"))
         advanceTimeBy(601)
@@ -358,5 +364,28 @@ class TaskDetailViewModelTest : ViewModelTest() {
         val s = start(FakeTasksRepository(listOf(task)), "nope").vm.state.value
         assertTrue(s.loaded)
         assertTrue(s.notFound)
+    }
+
+    @Test fun showsLinkedGoalChip() = runTest {
+        val goals = FakeGoalsRepository(listOf(linkGoal("g1", "Build ₹1,00,000 emergency fund")), clock)
+        val repo = FakeTasksRepository(listOf(task.copy(goalId = "g1"), Task("t2", "Orphan", goalId = "gone")), listOf(project))
+        val s = start(repo, goals = goals).vm.state.value
+        assertEquals(GoalChip("g1", "Build ₹1,00,000 emergency fund", "2027-04-12"), s.goal)
+        assertEquals("Goal: Build ₹1,00,000 emergency fund", s.linkedGoalLabel)
+        assertNull(start(repo, "t2", goals).vm.state.value.goal)
+    }
+
+    @Test fun linkedShowsAmountOrEmptyCopy() = runTest {
+        val repo = FakeTasksRepository(listOf(task, Task("t2", "Pay rent", amountPaise = 1_500_050L)), listOf(project))
+        assertNull(start(repo).vm.state.value.amountLabel)
+        assertEquals("₹15,000.5", start(repo, "t2").vm.state.value.amountLabel)
+    }
+
+    @Test fun subtaskInheritsTheGoal() = runTest {
+        val repo = FakeTasksRepository(listOf(task.copy(goalId = "g1")), listOf(project))
+        val h = start(repo)
+        h.vm.onAction(TaskDetailAction.AddSubtask("Charts"))
+        runCurrent()
+        assertEquals("g1", repo.taskFlow.value.first { it.parentId == "t1" }.goalId)
     }
 }

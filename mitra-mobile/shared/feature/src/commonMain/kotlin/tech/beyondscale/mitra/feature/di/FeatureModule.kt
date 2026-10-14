@@ -45,7 +45,7 @@ val featureModule = module {
     viewModelOf(::CategoriesViewModel)
     viewModelOf(::RecurringViewModel)
     viewModelOf(::SubscriptionsViewModel)
-    viewModel { (id: String) -> TaskDetailViewModel(id, get(), get(), get()) }
+    viewModel { (id: String) -> TaskDetailViewModel(id, get(), get(), get(), get()) }
     viewModel { (taskId: String) -> FocusViewModel(taskId, get(), get(), get()) }
-    viewModel { (id: String) -> ProjectDetailViewModel(id, get(), get()) }
+    viewModel { (id: String) -> ProjectDetailViewModel(id, get(), get(), get()) }
 }

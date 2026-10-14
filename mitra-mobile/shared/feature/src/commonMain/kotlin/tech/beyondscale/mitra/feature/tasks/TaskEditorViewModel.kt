@@ -13,11 +13,14 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import tech.beyondscale.mitra.core.AppClock
 import tech.beyondscale.mitra.core.dayFlow
+import tech.beyondscale.mitra.domain.model.Goal
+import tech.beyondscale.mitra.domain.model.GoalState
 import tech.beyondscale.mitra.domain.model.Priority
 import tech.beyondscale.mitra.domain.model.Project
 import tech.beyondscale.mitra.domain.model.Task
 import tech.beyondscale.mitra.domain.model.TaskChange
 import tech.beyondscale.mitra.domain.model.TaskDraft
+import tech.beyondscale.mitra.domain.repository.GoalsRepository
 import tech.beyondscale.mitra.domain.repository.TasksRepository
 import tech.beyondscale.mitra.feature.common.EventQueue
 import tech.beyondscale.mitra.feature.common.UiEvent
@@ -34,6 +37,7 @@ data class TaskFormState(
     val est: String = "",
     val recurring: String? = null,
     val parentId: String? = null,
+    val goalId: String? = null,
     val notes: String = "",
     val error: String? = null,
 )
@@ -45,6 +49,8 @@ data class TaskEditorUiState(
     val projects: List<Project> = emptyList(),
     /** "Subtask of" choices: open top-level tasks, never the edited task or its own subtasks (web `TaskForm`). */
     val parentOptions: List<ParentOption> = emptyList(),
+    /** "Links to goal" choices (id → name): active goals, as on the web, plus the goal the task already links to. */
+    val goalOptions: List<Pair<String, String>> = emptyList(),
     val today: String = "",
     val heading: String = "New task",
 )
@@ -63,6 +69,8 @@ sealed interface TaskEditorAction {
     data class Recurring(val r: String?) : TaskEditorAction
     /** "Subtask of"; null makes it a top-level task. */
     data class Parent(val id: String?) : TaskEditorAction
+    /** "Links to goal"; null is "None". */
+    data class Goal(val id: String?) : TaskEditorAction
     data class Notes(val v: String) : TaskEditorAction
     data object Save : TaskEditorAction
     /** Undo for "Task added". */
@@ -73,7 +81,11 @@ sealed interface TaskEditorAction {
 }
 
 /** Shell-scoped: one instance hosts the form sheet, so its Undo snackbars outlive the sheet and the task detail screen. */
-class TaskEditorViewModel(private val tasks: TasksRepository, private val clock: AppClock) : ViewModel() {
+class TaskEditorViewModel(
+    private val tasks: TasksRepository,
+    private val goals: GoalsRepository,
+    private val clock: AppClock,
+) : ViewModel() {
     private val form = MutableStateFlow(TaskFormState())
     /** What the form was opened with: the edited task, or the create defaults (carries goalId/someday/status). */
     private var editing: Task? = null
@@ -82,8 +94,8 @@ class TaskEditorViewModel(private val tasks: TasksRepository, private val clock:
     private val queue = EventQueue<TaskEditorAction>()
     val events: Flow<UiEvent<TaskEditorAction>> = queue.events
 
-    val state: StateFlow<TaskEditorUiState> = combine(form, tasks.tasks, tasks.projects, clock.dayFlow()) { f, all, projects, today ->
-        TaskEditorUiState(f, projects, parentOptions(all, f), today, heading(f))
+    val state: StateFlow<TaskEditorUiState> = combine(form, tasks.tasks, tasks.projects, goals.goals, clock.dayFlow()) { f, all, projects, gs, today ->
+        TaskEditorUiState(f, projects, parentOptions(all, f), goalOptions(gs, f), today, heading(f))
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), TaskEditorUiState())
 
     fun onAction(a: TaskEditorAction) {
@@ -102,6 +114,7 @@ class TaskEditorViewModel(private val tasks: TasksRepository, private val clock:
             is TaskEditorAction.Est -> form.update { it.copy(est = a.v.filter(Char::isDigit).take(EST_MAX_DIGITS)) }
             is TaskEditorAction.Recurring -> form.update { it.copy(recurring = a.r) }
             is TaskEditorAction.Parent -> form.update { it.copy(parentId = a.id) }
+            is TaskEditorAction.Goal -> form.update { it.copy(goalId = a.id) }
             is TaskEditorAction.Notes -> form.update { it.copy(notes = a.v) }
             TaskEditorAction.Save -> save()
             is TaskEditorAction.DeleteCreated -> viewModelScope.launch { tasks.delete(a.id) }
@@ -115,7 +128,7 @@ class TaskEditorViewModel(private val tasks: TasksRepository, private val clock:
         defaults = d
         form.value = TaskFormState(
             open = true, title = d.title, projectId = d.projectId, due = d.due, time = d.time, pri = d.pri,
-            est = d.estMin?.toString() ?: "", recurring = d.recurring, parentId = d.parentId, notes = d.notes,
+            est = d.estMin?.toString() ?: "", recurring = d.recurring, parentId = d.parentId, goalId = d.goalId, notes = d.notes,
         )
     }
 
@@ -123,7 +136,7 @@ class TaskEditorViewModel(private val tasks: TasksRepository, private val clock:
         editing = t
         form.value = TaskFormState(
             open = true, editId = t.id, title = t.title, projectId = t.projectId, due = t.due, time = t.time, pri = t.pri,
-            est = t.estMin?.toString() ?: "", recurring = t.recurring, parentId = t.parentId, notes = t.notes,
+            est = t.estMin?.toString() ?: "", recurring = t.recurring, parentId = t.parentId, goalId = t.goalId, notes = t.notes,
         )
     }
 
@@ -153,6 +166,7 @@ class TaskEditorViewModel(private val tasks: TasksRepository, private val clock:
                     if (est != existing.estMin) add(TaskChange.EstMin(est))
                     if (f.recurring != existing.recurring) add(TaskChange.Recurring(f.recurring))
                     if (f.parentId != existing.parentId) add(TaskChange.Parent(f.parentId))
+                    if (f.goalId != existing.goalId) add(TaskChange.GoalId(f.goalId))
                     if (f.notes != existing.notes) add(TaskChange.Notes(f.notes))
                 }
                 if (changes.isEmpty()) return@launch
@@ -162,7 +176,7 @@ class TaskEditorViewModel(private val tasks: TasksRepository, private val clock:
                 val t = tasks.create(
                     defaults.copy(
                         title = title, projectId = f.projectId, due = f.due, time = f.time, estMin = est, pri = f.pri,
-                        notes = f.notes, recurring = f.recurring, parentId = f.parentId,
+                        notes = f.notes, recurring = f.recurring, parentId = f.parentId, goalId = f.goalId,
                     ),
                 )
                 queue.send(UiEvent.Snack("Task added · ${t.title}", TaskEditorAction.DeleteCreated(t.id)))
@@ -175,6 +189,10 @@ class TaskEditorViewModel(private val tasks: TasksRepository, private val clock:
         return all.filter { ((it.parentId == null && !it.done) || it.id == f.parentId) && it.id !in excluded }
             .map { ParentOption(it.id, it.title) }
     }
+
+    /** Web `TaskForm`: `None` + active goals. A link to a paused/completed goal stays selectable so editing keeps it. */
+    private fun goalOptions(all: List<Goal>, f: TaskFormState): List<Pair<String, String>> =
+        all.filter { it.state == GoalState.Active || it.id == f.goalId }.map { it.id to it.name }
 
     private fun descendantsAndSelf(all: List<Task>, rootId: String): Set<String> {
         val byParent = all.groupBy { it.parentId }

@@ -25,14 +25,17 @@ import tech.beyondscale.mitra.core.ApplicationScope
 import tech.beyondscale.mitra.core.dayFlow
 import tech.beyondscale.mitra.core.fmtDay
 import tech.beyondscale.mitra.core.fmtTime
+import tech.beyondscale.mitra.core.localeIN
 import tech.beyondscale.mitra.core.minsToHm
 import tech.beyondscale.mitra.designsystem.components.ChipTone
+import tech.beyondscale.mitra.domain.model.Goal
 import tech.beyondscale.mitra.domain.model.Priority
 import tech.beyondscale.mitra.domain.model.Project
 import tech.beyondscale.mitra.domain.model.Task
 import tech.beyondscale.mitra.domain.model.TaskChange
 import tech.beyondscale.mitra.domain.model.TaskDraft
 import tech.beyondscale.mitra.domain.model.TaskStatus
+import tech.beyondscale.mitra.domain.repository.GoalsRepository
 import tech.beyondscale.mitra.domain.repository.TasksRepository
 import tech.beyondscale.mitra.domain.tasks.Completion
 import tech.beyondscale.mitra.domain.tasks.SubProgress
@@ -58,6 +61,12 @@ data class TaskDetailUiState(
     val priChip: Pair<String, ChipTone>? = null,
     val project: Project? = null,
     val projectId: String? = null,
+    /** The linked goal (header chip and "Linked"); null when unset or unknown. */
+    val goal: GoalChip? = null,
+    /** "Linked" chip text: `"Goal: "` + the name's first 30 characters (web `TaskDetail`). */
+    val linkedGoalLabel: String? = null,
+    /** "Linked" amount chip, `"₹15,000.5"` (web `toLocaleString('en-IN')`); null when the task has none. */
+    val amountLabel: String? = null,
     val ai: Boolean = false,
     val due: String? = null,
     val dueLine: String = "No date",
@@ -88,6 +97,7 @@ sealed interface TaskDetailAction {
 class TaskDetailViewModel(
     private val id: String,
     private val tasks: TasksRepository,
+    private val goals: GoalsRepository,
     private val clock: AppClock,
     private val appScope: ApplicationScope,
 ) : ViewModel() {
@@ -127,7 +137,7 @@ class TaskDetailViewModel(
         }
     }
 
-    val state: StateFlow<TaskDetailUiState> = combine(tasks.tasks, tasks.projects, clock.dayFlow(), notesDraft, ::build)
+    val state: StateFlow<TaskDetailUiState> = combine(tasks.tasks, tasks.projects, goals.goals, clock.dayFlow(), notesDraft, ::build)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), TaskDetailUiState())
 
     fun onAction(a: TaskDetailAction) {
@@ -155,7 +165,7 @@ class TaskDetailViewModel(
                 if (title.isEmpty()) return
                 launch {
                     val t = find(id) ?: return@launch
-                    val c = tasks.create(TaskDraft(title, parentId = id, projectId = t.projectId, due = t.due))
+                    val c = tasks.create(TaskDraft(title, parentId = id, projectId = t.projectId, due = t.due, goalId = t.goalId))
                     queue.send(UiEvent.Snack("Subtask added · ${c.title}"))
                 }
             }
@@ -232,11 +242,12 @@ class TaskDetailViewModel(
         if (c is Completion.Reopened && self) queue.send(UiEvent.Snack("Marked as open", TaskDetailAction.SetStatus(TaskStatus.Done)))
     }
 
-    private fun build(all: List<Task>, projects: List<Project>, today: String, draft: String?): TaskDetailUiState {
+    private fun build(all: List<Task>, projects: List<Project>, goals: List<Goal>, today: String, draft: String?): TaskDetailUiState {
         val t = all.firstOrNull { it.id == id } ?: return TaskDetailUiState(loaded = true, notFound = true, today = today)
         val byId = projects.associateBy { it.id }
         val overdue = t.isOverdue(today)
         val parent = t.parentId?.let { pid -> all.firstOrNull { it.id == pid } }
+        val goal = goalChip(goals, t.goalId)
         return TaskDetailUiState(
             loaded = true,
             today = today,
@@ -252,6 +263,9 @@ class TaskDetailViewModel(
             },
             project = t.projectId?.let(byId::get),
             projectId = t.projectId,
+            goal = goal,
+            linkedGoalLabel = goal?.let { "Goal: " + it.name.take(GOAL_LABEL_MAX) },
+            amountLabel = t.amountPaise?.takeIf { it != 0L }?.let { "₹" + localeIN(it / 100.0) },
             ai = t.source == "ai",
             due = t.due,
             dueLine = t.due?.let { d -> fmtDay(d, today) + (t.time?.takeIf { it.isNotBlank() }?.let { " · " + fmtTime(it) } ?: "") } ?: "No date",
@@ -284,5 +298,6 @@ class TaskDetailViewModel(
 
     private companion object {
         const val NOTES_DEBOUNCE_MS = 600L
+        const val GOAL_LABEL_MAX = 30
     }
 }

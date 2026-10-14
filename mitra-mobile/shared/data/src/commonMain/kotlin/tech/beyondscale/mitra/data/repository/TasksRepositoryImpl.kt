@@ -74,7 +74,9 @@ class TasksRepositoryImpl(
                 val dto = decode(TaskDto.serializer(), response) ?: return // DELETE answers { ok: true }
                 applyEcho(TASK, dto.id) {
                     // Deleted locally while the write was in flight: don't resurrect it.
-                    if (db.tasksQueries.selectById(dto.id).executeAsOneOrNull() != null) db.tasksQueries.upsert(dto.toDomain().toRow())
+                    if (db.tasksQueries.selectById(dto.id).executeAsOneOrNull() != null) {
+                        db.tasksQueries.upsert(dto.toDomain().copy(projectId = dto.projectId.unlessIn(deletedProjects())).toRow())
+                    }
                 }
             }
             override suspend fun onRejected(error: AppError) { refresh() }
@@ -123,11 +125,13 @@ class TasksRepositoryImpl(
         val pendingProjects = pendingIds(PROJECT)
         val localTasks = db.tasksQueries.selectIds().executeAsList().toSet()
         val localProjects = db.projectsQueries.selectIds().executeAsList().toSet()
+        val deletedProjects = pendingProjects - localProjects
         // Subtasks of a task whose DELETE is still queued: the server keeps them until that delete lands.
         // Tasks of a project whose DELETE is still queued: the server moves them to the Inbox once it lands; do so now.
+        // goalId is never scrubbed: the server keeps it after the goal is deleted (no FK); screens show "no goal".
         val incoming = body.tasks
             .filterNot { it.parentId != null && it.parentId in pendingTasks && it.parentId !in localTasks }
-            .map { if (it.projectId != null && it.projectId in pendingProjects && it.projectId !in localProjects) it.copy(projectId = null) else it }
+            .map { it.copy(projectId = it.projectId.unlessIn(deletedProjects)) }
         val serverTaskIds = incoming.map { it.id }.toSet()
         localTasks.filter { it !in serverTaskIds && it !in pendingTasks }.forEach { db.tasksQueries.delete(it) }
         incoming.filter { it.id !in pendingTasks }.forEach { db.tasksQueries.upsert(it.toDomain().toRow()) }
@@ -207,21 +211,22 @@ class TasksRepositoryImpl(
 
     /* ---------- project writes ---------- */
 
-    override suspend fun createProject(name: String, emoji: String): Project {
-        val p = Project(newId(), name.trim(), emoji, null, clock.now().toString())
+    override suspend fun createProject(name: String, emoji: String, goalId: String?): Project {
+        val p = Project(newId(), name.trim(), emoji, goalId, clock.now().toString())
         write {
             db.projectsQueries.upsert(p.toRow())
-            outbox.enqueue(PROJECT, "POST", "projects", buildJsonObject { put("id", p.id); put("name", p.name); put("emoji", p.emoji) }, entityId = p.id)
+            outbox.enqueue(PROJECT, "POST", "projects", p.createBody(), entityId = p.id)
         }
         return p
     }
 
-    override suspend fun updateProject(id: String, name: String, emoji: String) {
+    override suspend fun updateProject(id: String, name: String, emoji: String, goalId: String?) {
         write {
             val old = db.projectsQueries.selectById(id).executeAsOneOrNull()?.toDomain() ?: return@write
-            db.projectsQueries.upsert(old.copy(name = name.trim(), emoji = emoji).toRow())
+            db.projectsQueries.upsert(old.copy(name = name.trim(), emoji = emoji, goalId = goalId).toRow())
             outbox.enqueue(
-                PROJECT, "PATCH", "projects/$id", buildJsonObject { put("name", name.trim()); put("emoji", emoji) },
+                PROJECT, "PATCH", "projects/$id",
+                buildJsonObject { put("name", name.trim()); put("emoji", emoji); put("goalId", goalId) },
                 coalesceKey = "project:$id", entityId = id,
             )
         }
@@ -256,6 +261,14 @@ class TasksRepositoryImpl(
 
     private fun pendingIds(entity: String): Set<String> =
         db.outboxQueries.pendingEntityIds(entity).executeAsList().filter { it.isNotEmpty() }.toSet()
+
+    /**
+     * Projects whose DELETE is queued (pending but gone locally). Server copies never re-attach a task to one: the
+     * server moves its tasks to the Inbox once the DELETE lands (Money's `deletedRefs` rule). Call inside a transaction.
+     */
+    private fun deletedProjects(): Set<String> = pendingIds(PROJECT) - db.projectsQueries.selectIds().executeAsList().toSet()
+
+    private fun String?.unlessIn(deleted: Set<String>): String? = this?.takeUnless { it in deleted }
 
     private fun <T> decode(serializer: KSerializer<T>, element: JsonElement?): T? =
         (element as? JsonObject)?.let { runCatching { api.json.decodeFromJsonElement(serializer, it) }.getOrNull() }

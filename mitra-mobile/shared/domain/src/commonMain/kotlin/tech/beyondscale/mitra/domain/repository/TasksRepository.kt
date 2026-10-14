@@ -27,8 +27,9 @@ interface TasksRepository {
     suspend fun delete(id: String): List<Task>
     /** Undo for [delete]: re-creates the tasks with their original ids. */
     suspend fun restore(removed: List<Task>)
-    suspend fun createProject(name: String, emoji: String): Project
-    suspend fun updateProject(id: String, name: String, emoji: String)
+    suspend fun createProject(name: String, emoji: String, goalId: String? = null): Project
+    /** [goalId] null unlinks the project from its goal. */
+    suspend fun updateProject(id: String, name: String, emoji: String, goalId: String?)
     /** Deletes the project; its tasks move to the Inbox (as on the server). */
     suspend fun deleteProject(id: String)
 

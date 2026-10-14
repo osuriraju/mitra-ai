@@ -50,6 +50,14 @@ fun TaskDto.toDomain(): Task = Task(
 
 fun ProjectDto.toDomain(): Project = Project(id, name, emoji, goalId, createdAt)
 
+/** `POST projects` body (`goalId` null = not linked). */
+fun Project.createBody(): JsonObject = buildJsonObject {
+    put("id", id)
+    put("name", name)
+    put("emoji", emoji)
+    put("goalId", goalId)
+}
+
 /** `POST tasks` body: every field present, unset ones as JSON null (the web's `nulls()`). */
 fun Task.createBody(): JsonObject = buildJsonObject {
     put("id", id)
