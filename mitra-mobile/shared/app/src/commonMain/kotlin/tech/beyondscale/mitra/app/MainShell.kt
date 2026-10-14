@@ -76,9 +76,19 @@ import tech.beyondscale.mitra.domain.model.TaskDraft
 import tech.beyondscale.mitra.domain.model.User
 import tech.beyondscale.mitra.feature.common.ComingSoonScreen
 import tech.beyondscale.mitra.feature.common.EventEffect
+import tech.beyondscale.mitra.feature.money.BudgetsRoute
+import tech.beyondscale.mitra.feature.money.CategoriesRoute
+import tech.beyondscale.mitra.feature.money.MoneyLink
+import tech.beyondscale.mitra.feature.money.MoneyRoute
+import tech.beyondscale.mitra.feature.money.RecurringRoute
+import tech.beyondscale.mitra.feature.money.SubscriptionsRoute
+import tech.beyondscale.mitra.feature.money.TransactionsRoute
+import tech.beyondscale.mitra.feature.money.TxEditorViewModel
+import tech.beyondscale.mitra.feature.money.TxFormSheet
 import tech.beyondscale.mitra.feature.quickadd.QuickAddAction
 import tech.beyondscale.mitra.feature.quickadd.QuickAddSheet
 import tech.beyondscale.mitra.feature.quickadd.QuickAddViewModel
+import tech.beyondscale.mitra.feature.quickadd.QuickType
 import tech.beyondscale.mitra.feature.settings.SettingsRoute
 import tech.beyondscale.mitra.feature.tasks.FocusRoute
 import tech.beyondscale.mitra.feature.tasks.ProjectDetailRoute
@@ -128,9 +138,13 @@ internal fun MainShell(user: User, sync: SyncStatus, messages: Flow<String>) {
     // Keyed per account: a sheet left open at sign-out must not carry its draft (or edit target) into the next account.
     val quickAdd: QuickAddViewModel = koinViewModel(key = shellVmKey("quickAdd", user.id))
     val editor: TaskEditorViewModel = koinViewModel(key = shellVmKey("taskEditor", user.id))
+    val txEditor: TxEditorViewModel = koinViewModel(key = shellVmKey("tx-editor", user.id))
     val launches: LaunchRequests = koinInject()
     var moreOpen by rememberSaveable { mutableStateOf(false) }
     var quickAddOpen by rememberSaveable { mutableStateOf(false) }
+    var txFormOpen by rememberSaveable { mutableStateOf(false) }
+    // Restored open (after process death, or for a new account's editor) with nothing started: don't show an empty sheet.
+    LaunchedEffect(txEditor) { if (txFormOpen && !txEditor.state.value.ready) txFormOpen = false }
     // The one collector of sync messages; showSnackbar queues behind (rather than dismissing) an Undo snackbar.
     LaunchedEffect(messages) { messages.collect { snackbarHost.showSnackbar(it) } }
 
@@ -140,9 +154,13 @@ internal fun MainShell(user: User, sync: SyncStatus, messages: Flow<String>) {
     val entry by nav.currentBackStackEntryAsState()
     val destination = entry?.destination
     val chrome = chromeForDestination { k -> destination?.hasRoute(k) == true }
-    // Task and project detail and Focus all live under Tasks.
-    val current = if (isDetail(chrome)) TASKS
-    else (tabs + more).firstOrNull { d -> destination?.hierarchy?.any { it.hasRoute(d.route::class) } == true }
+    val moneyDetail = MONEY_DETAIL_ROUTES.any { destination?.hasRoute(it) == true }
+    // Money's sub-screens live under Money (none when the module is off); task and project detail and Focus under Tasks.
+    val current = when {
+        moneyDetail -> MONEY.takeIf { it in tabs }
+        isDetail(chrome) -> TASKS
+        else -> (tabs + more).firstOrNull { d -> destination?.hierarchy?.any { it.hasRoute(d.route::class) } == true }
+    }
 
     fun go(route: Any) = nav.navigate(route) {
         popUpTo(nav.graph.findStartDestination().id) { saveState = true }
@@ -150,6 +168,28 @@ internal fun MainShell(user: User, sync: SyncStatus, messages: Flow<String>) {
         restoreState = true
     }
     fun openTask(id: String) = nav.navigate(TaskDetailDest(id))
+    fun openTxForm(editId: String?) {
+        txEditor.start(editId)
+        txFormOpen = true
+    }
+    fun openMoney(link: MoneyLink) = when (link) {
+        MoneyLink.AddExpense -> openTxForm(null)
+        MoneyLink.Transactions -> nav.navigate(TransactionsDest())
+        MoneyLink.Budgets -> nav.navigate(BudgetsDest)
+        MoneyLink.Categories -> nav.navigate(CategoriesDest)
+        MoneyLink.Recurring -> nav.navigate(RecurringDest)
+        MoneyLink.Subscriptions -> nav.navigate(SubscriptionsDest)
+    }
+    /** Money's root with its saved stack cleared (launch targets), or Today when the module is off. */
+    fun goMoneyRoot(): Boolean {
+        if (!modules.money) {
+            go(TodayDest)
+            return false
+        }
+        go(MoneyDest)
+        nav.popBackStack<MoneyDest>(inclusive = false)
+        return true
+    }
     // Never pop the last entry (a double tap on Back would otherwise leave an empty NavHost).
     fun back() { if (nav.previousBackStackEntry != null) nav.popBackStack() }
     fun select(d: Dest) {
@@ -160,7 +200,7 @@ internal fun MainShell(user: User, sync: SyncStatus, messages: Flow<String>) {
 
     // A module switched off while its screen is open would strand the user: fall back to Today.
     LaunchedEffect(modules, current, entry, chrome) {
-        if (!isDetail(chrome) && entry != null && current == null && entry?.destination?.route != null) go(TodayDest)
+        if ((!isDetail(chrome) || moneyDetail) && entry != null && current == null && entry?.destination?.route != null) go(TodayDest)
     }
 
     // Widget / shortcut targets wait in LaunchRequests (also while signed out) until this shell handles them.
@@ -177,6 +217,14 @@ internal fun MainShell(user: User, sync: SyncStatus, messages: Flow<String>) {
             }
             LaunchTarget.OpenTasks -> go(TasksDest)
             LaunchTarget.QuickAddTask -> quickAddOpen = true
+            LaunchTarget.OpenMoney -> goMoneyRoot()
+            LaunchTarget.OpenBudgets -> if (goMoneyRoot()) nav.navigate(BudgetsDest)
+            LaunchTarget.QuickAddExpense -> if (modules.money) {
+                quickAddOpen = true
+                quickAdd.onAction(QuickAddAction.Type(QuickType.Expense))
+            } else {
+                go(TodayDest)
+            }
         }
         launches.consume()
     }
@@ -214,7 +262,16 @@ internal fun MainShell(user: User, sync: SyncStatus, messages: Flow<String>) {
             },
         ) { padding ->
             NavHost(nav, startDestination = TodayDest, modifier = Modifier.padding(padding)) {
-                composable<TodayDest> { TodayRoute(onOpenTasks = { go(TasksDest) }, onOpenTask = ::openTask) }
+                composable<TodayDest> {
+                    TodayRoute(
+                        onOpenTasks = { go(TasksDest) },
+                        onOpenTask = ::openTask,
+                        onOpenMoney = { if (modules.money) go(MoneyDest) },
+                        onAddExpense = { openTxForm(null) },
+                        // Via Money's root, so Budgets sits in the Money stack its highlighted tab implies.
+                        onOpenBudgets = { if (goMoneyRoot()) nav.navigate(BudgetsDest) },
+                    )
+                }
                 composable<TasksDest> {
                     TasksRoute(
                         onOpenTask = ::openTask,
@@ -242,7 +299,21 @@ internal fun MainShell(user: User, sync: SyncStatus, messages: Flow<String>) {
                 composable<FocusDest> { e ->
                     FocusRoute(e.toRoute<FocusDest>().taskId, onClose = ::back, onOpenTask = ::openTask)
                 }
-                composable<MoneyDest> { ComingSoonScreen("Money", MitraIcons.Wallet) }
+                composable<MoneyDest> {
+                    MoneyRoute(onEditTransaction = ::openTxForm, onOpen = { openMoney(it) }, topBarActions = shellActions)
+                }
+                composable<TransactionsDest> { e ->
+                    TransactionsRoute(
+                        initialCategoryId = e.toRoute<TransactionsDest>().categoryId.ifEmpty { null },
+                        onBack = ::back,
+                        onEdit = ::openTxForm,
+                        onAdd = { openTxForm(null) },
+                    )
+                }
+                composable<BudgetsDest> { BudgetsRoute(onBack = ::back) }
+                composable<CategoriesDest> { CategoriesRoute(onBack = ::back, onOpenTransactions = { nav.navigate(TransactionsDest(it)) }) }
+                composable<RecurringDest> { RecurringRoute(onBack = ::back) }
+                composable<SubscriptionsDest> { SubscriptionsRoute(onBack = ::back) }
                 composable<HabitsDest> { ComingSoonScreen("Habits", MitraIcons.Repeat) }
                 composable<GoalsDest> { ComingSoonScreen("Goals", MitraIcons.Target) }
                 composable<WellnessDest> { ComingSoonScreen("Wellness", MitraIcons.Heart) }
@@ -262,6 +333,11 @@ internal fun MainShell(user: User, sync: SyncStatus, messages: Flow<String>) {
 
         val editorState by editor.state.collectAsStateWithLifecycle()
         TaskFormSheet(editorState, editor::onAction)
+
+        // Its snackbars (Undo included) go through the shell's SnackbarController, so Undo outlives the sheet.
+        if (txFormOpen) {
+            TxFormSheet(txEditor, onDismiss = { txFormOpen = false }, onManageCategories = { nav.navigate(CategoriesDest) })
+        }
 
         if (moreOpen) {
             ModalBottomSheet(onDismissRequest = { moreOpen = false }, containerColor = Mitra.colors.surface) {

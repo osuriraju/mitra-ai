@@ -10,6 +10,13 @@ import tech.beyondscale.mitra.domain.usecase.SignupUseCase
 import tech.beyondscale.mitra.feature.auth.ForgotPasswordViewModel
 import tech.beyondscale.mitra.feature.auth.LoginViewModel
 import tech.beyondscale.mitra.feature.auth.SignupViewModel
+import tech.beyondscale.mitra.feature.money.BudgetsViewModel
+import tech.beyondscale.mitra.feature.money.CategoriesViewModel
+import tech.beyondscale.mitra.feature.money.MoneyViewModel
+import tech.beyondscale.mitra.feature.money.RecurringViewModel
+import tech.beyondscale.mitra.feature.money.SubscriptionsViewModel
+import tech.beyondscale.mitra.feature.money.TransactionsViewModel
+import tech.beyondscale.mitra.feature.money.TxEditorViewModel
 import tech.beyondscale.mitra.feature.quickadd.QuickAddViewModel
 import tech.beyondscale.mitra.feature.settings.SettingsViewModel
 import tech.beyondscale.mitra.feature.tasks.FocusViewModel
@@ -31,6 +38,13 @@ val featureModule = module {
     viewModelOf(::TasksViewModel)
     viewModelOf(::TaskEditorViewModel)
     viewModelOf(::QuickAddViewModel)
+    viewModelOf(::MoneyViewModel)
+    viewModelOf(::TxEditorViewModel)
+    viewModelOf(::TransactionsViewModel)
+    viewModelOf(::BudgetsViewModel)
+    viewModelOf(::CategoriesViewModel)
+    viewModelOf(::RecurringViewModel)
+    viewModelOf(::SubscriptionsViewModel)
     viewModel { (id: String) -> TaskDetailViewModel(id, get(), get(), get()) }
     viewModel { (taskId: String) -> FocusViewModel(taskId, get(), get(), get()) }
     viewModel { (id: String) -> ProjectDetailViewModel(id, get(), get()) }

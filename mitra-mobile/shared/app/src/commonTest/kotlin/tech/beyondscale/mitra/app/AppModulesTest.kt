@@ -15,6 +15,7 @@ import tech.beyondscale.mitra.data.sync.PeriodicSync
 import tech.beyondscale.mitra.data.sync.SyncScheduler
 import tech.beyondscale.mitra.domain.repository.AuthRepository
 import tech.beyondscale.mitra.domain.repository.ModuleRefresher
+import tech.beyondscale.mitra.domain.repository.MoneyRepository
 import tech.beyondscale.mitra.domain.repository.PreferencesRepository
 import tech.beyondscale.mitra.domain.repository.SettingsRepository
 import tech.beyondscale.mitra.domain.repository.SyncController
@@ -22,6 +23,13 @@ import tech.beyondscale.mitra.domain.repository.TasksRepository
 import tech.beyondscale.mitra.feature.auth.ForgotPasswordViewModel
 import tech.beyondscale.mitra.feature.auth.LoginViewModel
 import tech.beyondscale.mitra.feature.auth.SignupViewModel
+import tech.beyondscale.mitra.feature.money.BudgetsViewModel
+import tech.beyondscale.mitra.feature.money.CategoriesViewModel
+import tech.beyondscale.mitra.feature.money.MoneyViewModel
+import tech.beyondscale.mitra.feature.money.RecurringViewModel
+import tech.beyondscale.mitra.feature.money.SubscriptionsViewModel
+import tech.beyondscale.mitra.feature.money.TransactionsViewModel
+import tech.beyondscale.mitra.feature.money.TxEditorViewModel
 import tech.beyondscale.mitra.feature.quickadd.QuickAddViewModel
 import tech.beyondscale.mitra.feature.settings.SettingsViewModel
 import tech.beyondscale.mitra.feature.tasks.FocusViewModel
@@ -62,6 +70,7 @@ class AppModulesTest : ViewModelTest() {
         koin.get<SyncController>()
         koin.get<ModuleRefresher>()
         koin.get<TasksRepository>()
+        koin.get<MoneyRepository>()
         koin.get<LaunchRequests>()
         koin.get<RootViewModel>()
         koin.get<LoginViewModel>()
@@ -75,5 +84,12 @@ class AppModulesTest : ViewModelTest() {
         koin.get<TaskDetailViewModel> { parametersOf("t1") }
         koin.get<FocusViewModel> { parametersOf("") }
         koin.get<ProjectDetailViewModel> { parametersOf("p1") }
+        koin.get<MoneyViewModel>()
+        koin.get<TxEditorViewModel>()
+        koin.get<TransactionsViewModel>()
+        koin.get<BudgetsViewModel>()
+        koin.get<CategoriesViewModel>()
+        koin.get<RecurringViewModel>()
+        koin.get<SubscriptionsViewModel>()
     }
 }

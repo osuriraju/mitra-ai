@@ -26,6 +26,14 @@ class ChromeTest {
         assertEquals(Chrome.Tab, chromeForDestination { false })
     }
 
+    @Test fun moneyRoutes() {
+        assertEquals(Chrome.TabOwnBar, chromeFor(MoneyDest::class))
+        listOf(TransactionsDest::class, BudgetsDest::class, CategoriesDest::class, RecurringDest::class, SubscriptionsDest::class)
+            .forEach { assertEquals(Chrome.Detail, chromeFor(it), "$it") }
+        assertEquals(Chrome.TabOwnBar, chromeForDestination { it == MoneyDest::class })
+        assertEquals(Chrome.Detail, chromeForDestination { it == BudgetsDest::class })
+    }
+
     @Test fun shellViewModelsAreKeyedPerAccount() {
         assertEquals("quickAdd:u1", shellVmKey("quickAdd", "u1"))
         kotlin.test.assertNotEquals(shellVmKey("taskEditor", "a"), shellVmKey("taskEditor", "b"))

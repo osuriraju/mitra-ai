@@ -9,15 +9,24 @@ sealed interface LaunchTarget {
     data class OpenTask(val id: String) : LaunchTarget
     data object OpenTasks : LaunchTarget
     data object QuickAddTask : LaunchTarget
+    data object OpenMoney : LaunchTarget
+    data object QuickAddExpense : LaunchTarget
+    data object OpenBudgets : LaunchTarget
 }
 
 private const val TASK_PREFIX = "mitra://task/"
 
-/** `mitra://task/<id>`, `mitra://tasks` or `mitra://quick-add/task`; anything else is null. */
+/**
+ * `mitra://task/<id>`, `mitra://tasks`, `mitra://quick-add/task`, `mitra://money`, `mitra://quick-add/expense` or
+ * `mitra://money/budgets` (all but the task id matched exactly); anything else is null.
+ */
 fun parseLaunchUri(uri: String?): LaunchTarget? = when {
     uri == null -> null
     uri == "mitra://tasks" -> LaunchTarget.OpenTasks
     uri == "mitra://quick-add/task" -> LaunchTarget.QuickAddTask
+    uri == "mitra://money" -> LaunchTarget.OpenMoney
+    uri == "mitra://quick-add/expense" -> LaunchTarget.QuickAddExpense
+    uri == "mitra://money/budgets" -> LaunchTarget.OpenBudgets
     uri.startsWith(TASK_PREFIX) -> uri.removePrefix(TASK_PREFIX).takeIf { it.isNotBlank() && '/' !in it }?.let(LaunchTarget::OpenTask)
     else -> null
 }

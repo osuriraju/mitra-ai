@@ -11,6 +11,16 @@ class LaunchTargetTest {
         assertEquals(LaunchTarget.QuickAddTask, parseLaunchUri("mitra://quick-add/task"))
     }
 
+    @Test fun moneyUris() {
+        assertEquals(LaunchTarget.OpenMoney, parseLaunchUri("mitra://money"))
+        assertEquals(LaunchTarget.QuickAddExpense, parseLaunchUri("mitra://quick-add/expense"))
+        assertEquals(LaunchTarget.OpenBudgets, parseLaunchUri("mitra://money/budgets"))
+        assertNull(parseLaunchUri("mitra://money/x"))
+        assertNull(parseLaunchUri("mitra://money/"))
+        assertNull(parseLaunchUri("mitra://money/budgets/1"))
+        assertNull(parseLaunchUri("mitra://quick-add/expense/x"))
+    }
+
     @Test fun rejectsEverythingElse() {
         assertNull(parseLaunchUri("mitra://task/"))
         assertNull(parseLaunchUri("https://x/task/1"))
