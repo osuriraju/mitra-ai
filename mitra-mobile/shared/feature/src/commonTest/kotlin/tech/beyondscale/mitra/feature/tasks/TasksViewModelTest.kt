@@ -245,4 +245,82 @@ class TasksViewModelTest : ViewModelTest() {
         runCurrent()
         assertEquals(listOf("createProject:Work"), repo.calls)
     }
+
+    private fun TestScope.selecting(repo: FakeTasksRepository, vararg ids: String): Harness {
+        val h = start(repo)
+        h.vm.onAction(TasksAction.LongPress(ids.first()))
+        ids.drop(1).forEach { h.vm.onAction(TasksAction.ToggleSelect(it)) }
+        runCurrent()
+        return h
+    }
+
+    private fun two() = listOf(Task("a", "A", projectId = "p1"), Task("b", "B"))
+
+    @Test fun longPressStartsSelectionWithHaptic() = runTest {
+        val h = start(FakeTasksRepository(two(), listOf(project)))
+        h.vm.onAction(TasksAction.LongPress("a"))
+        runCurrent()
+        assertEquals(setOf("a"), h.vm.state.value.selection)
+        assertEquals(listOf<UiEvent<TasksAction>>(UiEvent.Haptic(HapticKind.LongPress)), h.events)
+    }
+
+    @Test fun tapTogglesWhileSelecting() = runTest {
+        val h = start(FakeTasksRepository(two(), listOf(project)))
+        h.vm.onAction(TasksAction.LongPress("a"))
+        h.vm.onAction(TasksAction.ToggleSelect("b"))
+        h.vm.onAction(TasksAction.ToggleSelect("a"))
+        runCurrent()
+        assertEquals(setOf("b"), h.vm.state.value.selection)
+        h.vm.onAction(TasksAction.ClearSelection)
+        assertEquals(emptySet(), h.vm.state.value.selection)
+    }
+
+    @Test fun bulkCompleteWithUndo() = runTest {
+        val repo = FakeTasksRepository(two(), listOf(project))
+        val h = selecting(repo, "a", "b")
+        h.vm.onAction(TasksAction.BulkComplete)
+        runCurrent()
+        assertEquals(listOf("done:a:true", "done:b:true"), repo.calls)
+        assertEquals(emptySet(), h.vm.state.value.selection)
+        val snack = h.events.filterIsInstance<UiEvent.Snack<TasksAction>>().single()
+        assertEquals("2 tasks completed", snack.text)
+        h.vm.onAction(snack.undo!!)
+        runCurrent()
+        assertEquals(listOf("done:a:true", "done:b:true", "done:a:false", "done:b:false"), repo.calls)
+    }
+
+    @Test fun bulkMoveRestoresOriginalProjects() = runTest {
+        val repo = FakeTasksRepository(two(), listOf(project))
+        val h = selecting(repo, "a", "b")
+        h.vm.onAction(TasksAction.BulkMove("p1"))
+        runCurrent()
+        assertEquals(listOf("update:a:ProjectId(value=p1)", "update:b:ProjectId(value=p1)"), repo.calls)
+        assertEquals(emptySet(), h.vm.state.value.selection)
+        val snack = h.events.filterIsInstance<UiEvent.Snack<TasksAction>>().single()
+        assertEquals("Moved 2 tasks to Mitra", snack.text)
+        h.vm.onAction(snack.undo!!)
+        runCurrent()
+        assertEquals(listOf("p1", null), repo.taskFlow.value.map { it.projectId })
+    }
+
+    @Test fun bulkDeleteRestoresAll() = runTest {
+        val repo = FakeTasksRepository(two(), listOf(project))
+        val h = selecting(repo, "a", "b")
+        h.vm.onAction(TasksAction.BulkDelete)
+        runCurrent()
+        assertEquals(listOf("delete:a", "delete:b"), repo.calls)
+        assertEquals(HapticKind.Reject, h.events.filterIsInstance<UiEvent.Haptic>().last().kind)
+        val snack = h.events.filterIsInstance<UiEvent.Snack<TasksAction>>().single()
+        assertEquals("2 tasks deleted", snack.text)
+        h.vm.onAction(snack.undo!!)
+        runCurrent()
+        assertEquals(listOf("delete:a", "delete:b", "restore:a,b"), repo.calls)
+    }
+
+    @Test fun switchingTabClearsSelection() = runTest {
+        val h = selecting(FakeTasksRepository(two(), listOf(project)), "a")
+        h.vm.onAction(TasksAction.SelectTab(TasksTab.Inbox))
+        runCurrent()
+        assertEquals(emptySet(), h.vm.state.value.selection)
+    }
 }

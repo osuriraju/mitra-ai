@@ -23,6 +23,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -32,6 +33,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -41,13 +43,17 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.ExperimentalComposeUiApi
+import androidx.compose.ui.backhandler.BackHandler
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -104,7 +110,7 @@ fun TasksRoute(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalComposeUiApi::class)
 @Composable
 fun TasksScreen(
     state: TasksUiState,
@@ -129,7 +135,13 @@ fun TasksScreen(
         toggle = { onAction(TasksAction.Toggle(it)) },
         reschedule = { onAction(TasksAction.Reschedule(it)) },
         open = onOpenTask,
+        // Taps while selecting toggle membership; the first long-press starts selection.
+        longPress = { id -> onAction(if (state.selection.isEmpty()) TasksAction.LongPress(id) else TasksAction.ToggleSelect(id)) },
+        selection = state.selection,
     )
+    @Suppress("DEPRECATION")
+    BackHandler(enabled = state.selection.isNotEmpty()) { onAction(TasksAction.ClearSelection) }
+    var confirmDelete by remember { mutableStateOf(false) }
 
     Column(Modifier.fillMaxSize().imePadding()) {
         MitraTopBar(state.tab.title()) {
@@ -138,12 +150,16 @@ fun TasksScreen(
             }
         }
         val counts = state.counts
-        MitraSegmented(
-            options = listOf("Inbox ${counts.inbox}", "Today ${counts.today}", "Upcoming ${counts.upcoming}", "Projects ${counts.projects}"),
-            selectedIndex = state.tab.ordinal,
-            onSelect = { onAction(TasksAction.SelectTab(TasksTab.entries[it])) },
-            modifier = Modifier.padding(horizontal = MitraDimens.pad),
-        )
+        if (state.selection.isEmpty()) {
+            MitraSegmented(
+                options = listOf("Inbox ${counts.inbox}", "Today ${counts.today}", "Upcoming ${counts.upcoming}", "Projects ${counts.projects}"),
+                selectedIndex = state.tab.ordinal,
+                onSelect = { onAction(TasksAction.SelectTab(TasksTab.entries[it])) },
+                modifier = Modifier.padding(horizontal = MitraDimens.pad),
+            )
+        } else {
+            SelectionBar(state, onAction, onDelete = { confirmDelete = true })
+        }
         PullToRefreshBox(
             isRefreshing = state.refreshing,
             onRefresh = { onAction(TasksAction.Refresh) },
@@ -163,6 +179,53 @@ fun TasksScreen(
         }
         if (state.tab == TasksTab.Inbox) InboxComposer { onAction(TasksAction.AddToInbox(it)) }
     }
+    if (confirmDelete && state.selection.isNotEmpty()) {
+        val n = state.selection.size
+        val c = Mitra.colors
+        AlertDialog(
+            onDismissRequest = { confirmDelete = false },
+            title = { Text("Delete $n task${if (n == 1) "" else "s"}?", style = Mitra.type.h3, color = c.text) },
+            text = { Text("Their subtasks are deleted too. You can undo right after.", style = Mitra.type.body, color = c.muted) },
+            confirmButton = {
+                TextButton(onClick = { confirmDelete = false; onAction(TasksAction.BulkDelete) }) { Text("Delete", color = c.danger) }
+            },
+            dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("Cancel", color = c.muted) } },
+            containerColor = c.surface,
+        )
+    }
+}
+
+/** Contextual bar shown instead of the tab row while tasks are selected. */
+@Composable
+private fun SelectionBar(state: TasksUiState, onAction: (TasksAction) -> Unit, onDelete: () -> Unit) {
+    val c = Mitra.colors
+    var moveOpen by remember { mutableStateOf(false) }
+    Row(
+        Modifier.fillMaxWidth().padding(horizontal = MitraDimens.pad - 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        IconButton(onClick = { onAction(TasksAction.ClearSelection) }) { Icon(MitraIcons.X, contentDescription = "Clear selection", tint = c.text) }
+        Text(
+            "${state.selection.size} selected",
+            style = Mitra.type.bodyBold,
+            color = c.text,
+            modifier = Modifier.weight(1f).semantics { liveRegion = LiveRegionMode.Polite },
+        )
+        IconButton(onClick = { onAction(TasksAction.BulkComplete) }) { Icon(MitraIcons.Check, contentDescription = "Complete selected", tint = c.accent) }
+        Box {
+            IconButton(onClick = { moveOpen = true }) { Icon(MitraIcons.Folder, contentDescription = "Move selected to project", tint = c.accent) }
+            DropdownMenu(expanded = moveOpen, onDismissRequest = { moveOpen = false }) {
+                DropdownMenuItem(text = { Text("Inbox", style = Mitra.type.body) }, onClick = { moveOpen = false; onAction(TasksAction.BulkMove(null)) })
+                state.projectOptions.forEach { p ->
+                    DropdownMenuItem(
+                        text = { Text("${p.emoji} ${p.name}", style = Mitra.type.body) },
+                        onClick = { moveOpen = false; onAction(TasksAction.BulkMove(p.id)) },
+                    )
+                }
+            }
+        }
+        IconButton(onClick = onDelete) { Icon(MitraIcons.Trash, contentDescription = "Delete selected", tint = c.danger) }
+    }
 }
 
 private fun TasksTab.title() = when (this) {
@@ -170,7 +233,29 @@ private fun TasksTab.title() = when (this) {
     else -> label
 }
 
-private class RowActions(val toggle: (String) -> Unit, val reschedule: (String) -> Unit, val open: (String) -> Unit)
+private class RowActions(
+    val toggle: (String) -> Unit,
+    val reschedule: (String) -> Unit,
+    val open: (String) -> Unit,
+    val longPress: (String) -> Unit,
+    val selection: Set<String>,
+) {
+    val selecting get() = selection.isNotEmpty()
+}
+
+@Composable
+private fun SelectableRow(r: TaskRowUi, a: RowActions) {
+    val selected = r.id in a.selection
+    SwipeTaskRow(
+        r,
+        onToggle = { if (a.selecting) a.longPress(r.id) else a.toggle(r.id) },
+        onReschedule = { a.reschedule(r.id) },
+        onOpen = { if (a.selecting) a.longPress(r.id) else a.open(r.id) },
+        onLongPress = { if (!a.selecting) a.longPress(r.id) },
+        selected = selected,
+        selecting = a.selecting,
+    )
+}
 
 /* ---------------- tabs ---------------- */
 
@@ -297,7 +382,7 @@ private fun LazyListScope.inboxTab(state: TasksUiState, onAction: (TasksAction) 
     itemsIndexed(state.inbox, key = { _, r -> r.id }) { i, r ->
         Column(Modifier.cardSlice(i, n)) {
             if (i > 0) RowDivider()
-            SwipeTaskRow(r, onToggle = { rows.toggle(r.id) }, onReschedule = { rows.reschedule(r.id) }, onOpen = { rows.open(r.id) })
+            SelectableRow(r, rows)
             TriageChips(r, state, onAction)
         }
     }
@@ -386,7 +471,7 @@ private fun LazyListScope.taskRows(list: List<TaskRowUi>, actions: RowActions, c
     itemsIndexed(list, key = { _, r -> r.id }) { i, r ->
         Column(Modifier.cardSlice(i, n, closeBottom = closed)) {
             if (i > 0) RowDivider()
-            SwipeTaskRow(r, onToggle = { actions.toggle(r.id) }, onReschedule = { actions.reschedule(r.id) }, onOpen = { actions.open(r.id) })
+            SelectableRow(r, actions)
         }
     }
 }

@@ -27,6 +27,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
@@ -87,13 +88,15 @@ fun TaskRow(
     modifier: Modifier = Modifier,
     onLongPress: (() -> Unit)? = null,
     selected: Boolean = false,
+    selecting: Boolean = false,
 ) {
     val c = Mitra.colors
     Row(
         modifier
             .fillMaxWidth()
             .background(if (selected) c.accentSoft else c.surface)
-            .combinedClickable(role = Role.Button, onClickLabel = "Open task", onLongClickLabel = onLongPress?.let { "Select task" }, onLongClick = onLongPress, onClick = onOpen)
+            .combinedClickable(role = Role.Button, onClickLabel = if (selecting) (if (selected) "Deselect task" else "Select task") else "Open task", onLongClickLabel = onLongPress?.let { "Select task" }, onLongClick = onLongPress, onClick = onOpen)
+            .then(if (selecting) Modifier.semantics { this.selected = selected } else Modifier)
             .heightIn(min = 56.dp)
             .padding(start = 4.dp, end = 12.dp, top = 4.dp, bottom = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -202,6 +205,7 @@ fun SwipeTaskRow(
     modifier: Modifier = Modifier,
     onLongPress: (() -> Unit)? = null,
     selected: Boolean = false,
+    selecting: Boolean = false,
 ) {
     SwipeRow(
         onSwipeRight = if (!row.done) onToggle else null,
@@ -211,7 +215,8 @@ fun SwipeTaskRow(
         leftLabel = "Tomorrow",
         leftIcon = MitraIcons.Clock,
         modifier = modifier,
+        enabled = !selecting,
     ) {
-        TaskRow(row, onToggle, onOpen, onLongPress = onLongPress, selected = selected)
+        TaskRow(row, onToggle, onOpen, onLongPress = onLongPress, selected = selected, selecting = selecting)
     }
 }

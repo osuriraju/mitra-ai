@@ -42,6 +42,7 @@ turbine = { module = "app.cash.turbine:turbine", version.ref = "turbine" }
 cmp-runtime = { module = "org.jetbrains.compose.runtime:runtime", version.ref = "compose-mp" }
 cmp-foundation = { module = "org.jetbrains.compose.foundation:foundation", version.ref = "compose-mp" }
 cmp-ui = { module = "org.jetbrains.compose.ui:ui", version.ref = "compose-mp" }
+cmp-ui-backhandler = { module = "org.jetbrains.compose.ui:ui-backhandler", version.ref = "compose-mp" }
 cmp-resources = { module = "org.jetbrains.compose.components:components-resources", version.ref = "compose-mp" }
 cmp-material3 = { module = "org.jetbrains.compose.material3:material3", version.ref = "material3" }
 

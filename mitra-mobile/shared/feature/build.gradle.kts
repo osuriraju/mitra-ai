@@ -11,6 +11,7 @@ kotlin {
             api(libs.lifecycle.vm.compose)
             implementation(libs.lifecycle.runtime.compose)
             implementation(libs.koin.compose.vm)
+            implementation(libs.cmp.ui.backhandler)
         }
         commonTest.dependencies { implementation(project(":shared:testing")) }
     }

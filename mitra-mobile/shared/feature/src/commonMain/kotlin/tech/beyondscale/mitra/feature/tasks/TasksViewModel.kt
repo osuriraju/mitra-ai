@@ -69,6 +69,8 @@ data class TasksUiState(
     val filters: TaskFilters = TaskFilters(),
     val projectOptions: List<Project> = emptyList(),
     val refreshing: Boolean = false,
+    /** Ids picked in multi-select mode (empty when not selecting). */
+    val selection: Set<String> = emptySet(),
 )
 
 sealed interface TasksAction {
@@ -88,6 +90,16 @@ sealed interface TasksAction {
     data object ToggleShowDone : TasksAction
     data object Refresh : TasksAction
     data class CreateProject(val name: String, val emoji: String) : TasksAction
+    data class LongPress(val id: String) : TasksAction
+    data class ToggleSelect(val id: String) : TasksAction
+    data object ClearSelection : TasksAction
+    data object BulkComplete : TasksAction
+    /** Null moves the selection to the Inbox. */
+    data class BulkMove(val projectId: String?) : TasksAction
+    data object BulkDelete : TasksAction
+    data class UndoBulkComplete(val ids: List<String>, val spawned: List<String>) : TasksAction
+    data class RestoreProjects(val previous: Map<String, String?>) : TasksAction
+    data class RestoreDeleted(val removed: List<Task>) : TasksAction
 }
 
 class TasksViewModel(private val tasks: TasksRepository, private val clock: AppClock) : ViewModel() {
@@ -96,6 +108,7 @@ class TasksViewModel(private val tasks: TasksRepository, private val clock: AppC
         val filters: TaskFilters = TaskFilters(),
         val showDone: Boolean = true,
         val refreshing: Boolean = false,
+        val selection: Set<String> = emptySet(),
     )
 
     private val local = MutableStateFlow(Local())
@@ -107,7 +120,7 @@ class TasksViewModel(private val tasks: TasksRepository, private val clock: AppC
 
     fun onAction(a: TasksAction) {
         when (a) {
-            is TasksAction.SelectTab -> local.update { it.copy(tab = a.tab) }
+            is TasksAction.SelectTab -> local.update { it.copy(tab = a.tab, selection = emptySet()) }
             is TasksAction.SetFilters -> local.update { it.copy(filters = a.filters) }
             TasksAction.ToggleShowDone -> local.update { it.copy(showDone = !it.showDone) }
             is TasksAction.Toggle -> launch { toggle(a.id) }
@@ -143,6 +156,35 @@ class TasksViewModel(private val tasks: TasksRepository, private val clock: AppC
             }
             is TasksAction.DeleteCreated -> launch { tasks.delete(a.id) }
             TasksAction.Refresh -> refresh()
+            is TasksAction.LongPress -> {
+                if (a.id in local.value.selection) return
+                local.update { it.copy(selection = it.selection + a.id) }
+                queue.send(UiEvent.Haptic(HapticKind.LongPress))
+            }
+            is TasksAction.ToggleSelect -> local.update { it.copy(selection = if (a.id in it.selection) it.selection - a.id else it.selection + a.id) }
+            TasksAction.ClearSelection -> local.update { it.copy(selection = emptySet()) }
+            TasksAction.BulkComplete -> {
+                val ids = takeSelection()
+                launch { bulkComplete(ids) }
+            }
+            is TasksAction.BulkMove -> {
+                val ids = takeSelection()
+                launch { bulkMove(ids, a.projectId) }
+            }
+            TasksAction.BulkDelete -> {
+                val ids = takeSelection()
+                if (ids.isEmpty()) return
+                queue.send(UiEvent.Haptic(HapticKind.Reject))
+                launch { bulkDelete(ids) }
+            }
+            is TasksAction.UndoBulkComplete -> launch {
+                a.ids.forEach { tasks.setDone(it, false) }
+                a.spawned.forEach { tasks.delete(it) }
+            }
+            is TasksAction.RestoreProjects -> launch {
+                a.previous.forEach { (id, p) -> tasks.update(id, listOf(TaskChange.ProjectId(p))) }
+            }
+            is TasksAction.RestoreDeleted -> launch { tasks.restore(a.removed) }
             is TasksAction.CreateProject -> {
                 if (validateProjectName(a.name) != null) return
                 launch {
@@ -155,6 +197,40 @@ class TasksViewModel(private val tasks: TasksRepository, private val clock: AppC
 
     private fun launch(block: suspend () -> Unit) {
         viewModelScope.launch { block() }
+    }
+
+    /** Returns the current selection (in pick order) and clears it. */
+    private fun takeSelection(): List<String> {
+        val ids = local.value.selection.toList()
+        local.update { it.copy(selection = emptySet()) }
+        return ids
+    }
+
+    private fun count(n: Int) = "$n task${if (n == 1) "" else "s"}"
+
+    private suspend fun bulkComplete(ids: List<String>) {
+        val all = tasks.tasks.first()
+        val open = ids.filter { id -> all.firstOrNull { it.id == id }?.done == false }
+        if (open.isEmpty()) return
+        queue.send(UiEvent.Haptic(HapticKind.Confirm))
+        val spawned = open.mapNotNull { tasks.setDone(it, true) }
+        queue.send(UiEvent.Snack("${count(open.size)} completed", TasksAction.UndoBulkComplete(open, spawned)))
+    }
+
+    private suspend fun bulkMove(ids: List<String>, projectId: String?) {
+        val all = tasks.tasks.first()
+        val present = ids.mapNotNull { id -> all.firstOrNull { it.id == id } }
+        if (present.isEmpty()) return
+        val previous = present.associate { it.id to it.projectId }
+        present.forEach { tasks.update(it.id, listOf(TaskChange.ProjectId(projectId))) }
+        val name = projectId?.let { id -> tasks.projects.first().firstOrNull { it.id == id }?.name } ?: "Inbox"
+        queue.send(UiEvent.Snack("Moved ${count(present.size)} to $name", TasksAction.RestoreProjects(previous)))
+    }
+
+    private suspend fun bulkDelete(ids: List<String>) {
+        val removed = ids.flatMap { tasks.delete(it) }
+        if (removed.isEmpty()) return
+        queue.send(UiEvent.Snack("${count(ids.size)} deleted", TasksAction.RestoreDeleted(removed)))
     }
 
     private suspend fun find(id: String): Task? = tasks.tasks.first().firstOrNull { it.id == id }
@@ -224,6 +300,7 @@ class TasksViewModel(private val tasks: TasksRepository, private val clock: AppC
             filters = f,
             projectOptions = projects,
             refreshing = l.refreshing,
+            selection = l.selection.filterTo(LinkedHashSet()) { id -> all.any { it.id == id } },
         )
     }
 }
