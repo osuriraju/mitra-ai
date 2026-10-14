@@ -12,6 +12,8 @@ data class MitraColors(
     val accent: Color, val onAccent: Color,
     val success: Color, val warning: Color, val danger: Color, val info: Color,
     val navBg: Color, val isDark: Boolean,
+    /** Categorical series colours (`--s1…--s8`). */
+    val series: List<Color>,
 ) {
     // color-mix(in srgb, X n%, surface) equivalents
     val accentSoft: Color get() = lerp(surface, accent, 0.12f)
@@ -27,6 +29,7 @@ val NoirDark = MitraColors(
     accent = Color(0xFF2DD4BF), onAccent = Color(0xFF04110F),
     success = Color(0xFF4ADE80), warning = Color(0xFFFBBF24), danger = Color(0xFFFB7185), info = Color(0xFF60A5FA),
     navBg = Color(0xFF0E1015), isDark = true,
+    series = listOf(0xFF3987E5, 0xFFD95926, 0xFF199E70, 0xFFC98500, 0xFFD55181, 0xFF008300, 0xFF9085E9, 0xFFE66767).map(::Color),
 )
 
 val NoirLight = MitraColors(
@@ -35,4 +38,5 @@ val NoirLight = MitraColors(
     accent = Color(0xFF0D9488), onAccent = Color.White,
     success = Color(0xFF15803D), warning = Color(0xFFB45309), danger = Color(0xFFE11D48), info = Color(0xFF2563EB),
     navBg = Color(0xFFF5F6F9), isDark = false,
+    series = listOf(0xFF2A78D6, 0xFFEB6834, 0xFF1BAF7A, 0xFFEDA100, 0xFFE87BA4, 0xFF008300, 0xFF4A3AA7, 0xFFE34948).map(::Color),
 )
