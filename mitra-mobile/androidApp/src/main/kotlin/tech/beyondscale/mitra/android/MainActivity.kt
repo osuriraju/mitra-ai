@@ -22,7 +22,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         // Widget deep links (mitra://…). Not on recreation: the intent was already handled before the config change.
-        if (savedInstanceState == null) launches.submit(parseLaunchUri(intent.dataString))
+        if (savedInstanceState == null) launches.submit(parseLaunchUri(intent.launchUri()))
         enableEdgeToEdge()
         setContent {
             MitraApp(onDarkTheme = { dark ->
@@ -35,8 +35,12 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        launches.submit(parseLaunchUri(intent.dataString))
+        launches.submit(parseLaunchUri(intent.launchUri()))
     }
+
+    /** A relaunch from Recents replays the original intent; its deep link was already handled, so it is ignored. */
+    private fun Intent.launchUri(): String? =
+        if (flags and Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY != 0) null else dataString
 
     override fun onStart() {
         super.onStart()

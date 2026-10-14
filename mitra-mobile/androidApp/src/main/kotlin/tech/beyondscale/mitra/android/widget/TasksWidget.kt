@@ -4,7 +4,9 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.unit.DpSize
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.glance.GlanceId
@@ -41,12 +43,14 @@ import androidx.glance.text.FontWeight
 import androidx.glance.text.Text
 import androidx.glance.text.TextStyle
 import androidx.glance.unit.ColorProvider
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.get
 import tech.beyondscale.mitra.android.MainActivity
 import tech.beyondscale.mitra.android.R
 import tech.beyondscale.mitra.core.AppClock
+import tech.beyondscale.mitra.core.dayFlow
 import tech.beyondscale.mitra.core.today
 import tech.beyondscale.mitra.designsystem.theme.MitraColors
 import tech.beyondscale.mitra.designsystem.theme.NoirDark
@@ -55,30 +59,43 @@ import tech.beyondscale.mitra.domain.model.ThemeMode
 import tech.beyondscale.mitra.domain.repository.AuthRepository
 import tech.beyondscale.mitra.domain.repository.PreferencesRepository
 import tech.beyondscale.mitra.domain.repository.TasksRepository
+import tech.beyondscale.mitra.domain.tasks.TasksWidgetLayout
+import tech.beyondscale.mitra.domain.tasks.TasksWidgetMetrics
 import tech.beyondscale.mitra.domain.tasks.TasksWidgetModel
 import tech.beyondscale.mitra.domain.tasks.WidgetTaskRow
+import tech.beyondscale.mitra.domain.tasks.tasksWidgetLayout
 import tech.beyondscale.mitra.domain.tasks.tasksWidgetModel
 import androidx.glance.color.ColorProvider as DayNightColorProvider
 
 /** "Today" home-screen widget (spec §10): today's open tasks, completed in place, read from the local database. */
 class TasksWidget : GlanceAppWidget(), KoinComponent {
-    override val sizeMode = SizeMode.Responsive(setOf(SMALL, MEDIUM, LARGE))
+    /** Exact: [LocalSize] is the widget's real size, so as many rows as fit are drawn (spec §10). */
+    override val sizeMode = SizeMode.Exact
 
     override suspend fun provideGlance(context: Context, id: GlanceId) {
-        val model = tasksWidgetModel(get<TasksRepository>().tasks.first(), get<AppClock>().today(), get<AuthRepository>().hasLocalAccount.first())
-        val palette = WidgetPalette.of(get<PreferencesRepository>().theme.first())
-        provideContent { TasksWidgetContent(model, palette) }
+        val tasks = get<TasksRepository>()
+        val auth = get<AuthRepository>()
+        val clock = get<AppClock>()
+        val prefs = get<PreferencesRepository>()
+        // update()/updateAll() on a live session does not re-run provideGlance, so the content collects the flows
+        // itself; the first() snapshot is only the initial frame.
+        val initialModel = tasksWidgetModel(tasks.tasks.first(), clock.today(), auth.hasLocalAccount.first())
+        val initialTheme = prefs.theme.first()
+        val models = combine(tasks.tasks, auth.hasLocalAccount, clock.dayFlow()) { list, signedIn, today ->
+            tasksWidgetModel(list, today, signedIn)
+        }
+        provideContent {
+            val model by models.collectAsState(initialModel)
+            val theme by prefs.theme.collectAsState(initialTheme)
+            TasksWidgetContent(model, remember(theme) { WidgetPalette.of(theme) })
+        }
     }
 
     companion object {
-        val SMALL = DpSize(110.dp, 110.dp)
-        val MEDIUM = DpSize(250.dp, 110.dp)
-        val LARGE = DpSize(250.dp, 250.dp)
+        /** Narrower than this draws the small (2×2) layout. */
+        val MEDIUM_MIN_WIDTH = 250.dp
     }
 }
-
-/** Task rows that fit under the header (64 dp) at 36 dp each; always at least one. */
-internal fun widgetRowsThatFit(heightDp: Float): Int = (((heightDp - 64f) / 36f).toInt()).coerceAtLeast(1)
 
 /** Widget colours. Auto follows the launcher's day/night setting directly, so it flips without a widget update. */
 internal class WidgetPalette(
@@ -111,12 +128,12 @@ private fun TasksWidgetContent(model: TasksWidgetModel, p: WidgetPalette) {
     val context = LocalContext.current
     val size = LocalSize.current
     Box(
-        modifier = GlanceModifier.fillMaxSize().background(p.surface).cornerRadius(16.dp).padding(12.dp),
+        modifier = GlanceModifier.fillMaxSize().background(p.surface).cornerRadius(16.dp).padding(TasksWidgetMetrics.PADDING.dp),
     ) {
         when {
             !model.signedIn -> Centered(context.getString(R.string.tasks_widget_sign_in), p, openApp(context))
-            size.width < TasksWidget.MEDIUM.width -> Small(model, p)
-            else -> Full(model, p, widgetRowsThatFit(size.height.value))
+            size.width < TasksWidget.MEDIUM_MIN_WIDTH -> Small(model, p)
+            else -> Full(model, p, tasksWidgetLayout(size.height.value, model.rows.size))
         }
     }
 }
@@ -172,10 +189,10 @@ private fun Small(model: TasksWidgetModel, p: WidgetPalette) {
 }
 
 @Composable
-private fun Full(model: TasksWidgetModel, p: WidgetPalette, fit: Int) {
+private fun Full(model: TasksWidgetModel, p: WidgetPalette, layout: TasksWidgetLayout) {
     val context = LocalContext.current
     Column(modifier = GlanceModifier.fillMaxSize()) {
-        Row(modifier = GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Row(modifier = GlanceModifier.fillMaxWidth().height(TasksWidgetMetrics.HEADER.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(
                 context.getString(R.string.tasks_widget_header, model.done, model.total),
                 modifier = GlanceModifier.defaultWeight().clickable(openUri(context, "mitra://tasks")),
@@ -183,28 +200,32 @@ private fun Full(model: TasksWidgetModel, p: WidgetPalette, fit: Int) {
             )
             AddButton(p)
         }
-        Spacer(GlanceModifier.height(4.dp))
+        Spacer(GlanceModifier.height(TasksWidgetMetrics.BAR_GAP_TOP.dp))
         LinearProgressIndicator(
             progress = if (model.total == 0) 0f else model.done.toFloat() / model.total,
-            modifier = GlanceModifier.fillMaxWidth().height(3.dp),
+            modifier = GlanceModifier.fillMaxWidth().height(TasksWidgetMetrics.BAR.dp),
             color = p.accent,
             backgroundColor = p.track,
         )
-        Spacer(GlanceModifier.height(6.dp))
+        Spacer(GlanceModifier.height(TasksWidgetMetrics.BAR_GAP_BOTTOM.dp))
         if (model.rows.isEmpty()) {
             Box(modifier = GlanceModifier.fillMaxWidth().defaultWeight(), contentAlignment = Alignment.Center) {
                 Text(context.getString(R.string.tasks_widget_all_clear), style = TextStyle(color = p.muted, fontSize = 14.sp))
             }
             return@Column
         }
-        model.rows.take(fit).forEach { TaskRow(it, p) }
-        val more = model.rows.size - fit
-        if (more > 0) {
-            Text(
-                context.getString(R.string.tasks_widget_more, more),
-                modifier = GlanceModifier.padding(top = 2.dp).clickable(openUri(context, "mitra://tasks")),
-                style = TextStyle(color = p.muted, fontSize = 12.sp, fontWeight = FontWeight.Medium),
-            )
+        model.rows.take(layout.rows).forEach { TaskRow(it, p) }
+        if (layout.more > 0) {
+            Box(
+                modifier = GlanceModifier.fillMaxWidth().height(TasksWidgetMetrics.FOOTER.dp).clickable(openUri(context, "mitra://tasks")),
+                contentAlignment = Alignment.CenterStart,
+            ) {
+                Text(
+                    context.getString(R.string.tasks_widget_more, layout.more),
+                    maxLines = 1,
+                    style = TextStyle(color = p.muted, fontSize = 12.sp, fontWeight = FontWeight.Medium),
+                )
+            }
         }
     }
 }
@@ -213,8 +234,8 @@ private fun Full(model: TasksWidgetModel, p: WidgetPalette, fit: Int) {
 private fun TaskRow(row: WidgetTaskRow, p: WidgetPalette) {
     val context = LocalContext.current
     val complete = context.getString(R.string.tasks_widget_complete, row.title)
-    val open = context.getString(R.string.tasks_widget_open, row.title)
-    Row(modifier = GlanceModifier.fillMaxWidth().height(36.dp), verticalAlignment = Alignment.CenterVertically) {
+    val open = context.getString(if (row.overdue) R.string.tasks_widget_open_overdue else R.string.tasks_widget_open, row.title)
+    Row(modifier = GlanceModifier.fillMaxWidth().height(TasksWidgetMetrics.ROW.dp), verticalAlignment = Alignment.CenterVertically) {
         CheckBox(
             checked = false,
             onCheckedChange = actionRunCallback<ToggleTaskAction>(actionParametersOf(ToggleTaskAction.TaskId to row.id)),

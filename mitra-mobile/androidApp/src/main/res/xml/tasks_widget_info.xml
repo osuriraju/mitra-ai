@@ -6,6 +6,6 @@
     android:targetCellHeight="2"
     android:resizeMode="horizontal|vertical"
     android:widgetCategory="home_screen"
-    android:updatePeriodMillis="1800000"
+    android:updatePeriodMillis="0"
     android:initialLayout="@layout/glance_default_loading_layout"
     android:description="@string/tasks_widget_description" />
