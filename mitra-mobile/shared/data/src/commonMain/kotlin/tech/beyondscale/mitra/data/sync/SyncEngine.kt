@@ -29,6 +29,7 @@ import kotlinx.serialization.json.JsonElement
 import tech.beyondscale.mitra.core.AppError
 import tech.beyondscale.mitra.core.Outcome
 import tech.beyondscale.mitra.data.db.MitraDb
+import tech.beyondscale.mitra.data.db.Outbox
 import tech.beyondscale.mitra.data.remote.ApiClient
 import tech.beyondscale.mitra.domain.model.SyncStatus
 import tech.beyondscale.mitra.domain.repository.SyncController
@@ -41,6 +42,8 @@ interface SyncHandler {
     suspend fun onSuccess(response: JsonElement?)
     /** The server refused the write (4xx, or a third `500 INTERNAL`); the local copy should be restored from the server. */
     suspend fun onRejected(error: AppError)
+    /** Like [onRejected], with the refused outbox row (method, path, entityId, body). Defaults to [onRejected]. */
+    suspend fun onRejected(error: AppError, row: Outbox) = onRejected(error)
 }
 
 /** Sends outbox rows one at a time, oldest first. See spec §6 for the failure rules. */
@@ -121,7 +124,7 @@ class SyncEngine(
                 throw e
             } catch (e: Exception) {
                 sent++
-                reject(entry.id, entry.entity, AppError.Unknown(e))
+                reject(entry, AppError.Unknown(e))
                 continue
             }
             when (val r = api.send(HttpMethod.parse(entry.method), entry.path, body)) {
@@ -154,7 +157,7 @@ class SyncEngine(
                         }
                     } else {
                         sent++
-                        reject(entry.id, entry.entity, e)
+                        reject(entry, e)
                     }
                 }
             }
@@ -185,9 +188,9 @@ class SyncEngine(
         }
     }
 
-    private suspend fun reject(id: String, entity: String, error: AppError) {
-        if (!dequeue(id)) return
-        safely { handlers[entity]?.onRejected(error) }
+    private suspend fun reject(entry: Outbox, error: AppError) {
+        if (!dequeue(entry.id)) return
+        safely { handlers[entry.entity]?.onRejected(error, entry) }
         _messages.trySend("Couldn't save · ${error.message}")
     }
 

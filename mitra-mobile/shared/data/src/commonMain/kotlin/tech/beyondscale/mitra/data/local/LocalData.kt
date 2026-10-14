@@ -14,5 +14,6 @@ class LocalData(private val db: MitraDb) {
         db.transactionsQueries.deleteAll()
         db.recurringQueries.deleteAll()
         db.subscriptionsQueries.deleteAll()
+        db.prefQueries.remove(PrefKeys.MONEY_REJECTED_TX)
     }
 }

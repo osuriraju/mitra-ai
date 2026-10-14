@@ -29,6 +29,7 @@ import tech.beyondscale.mitra.core.localNow
 import tech.beyondscale.mitra.core.newId
 import tech.beyondscale.mitra.core.today
 import tech.beyondscale.mitra.data.db.MitraDb
+import tech.beyondscale.mitra.data.db.Outbox
 import tech.beyondscale.mitra.data.local.PrefKeys
 import tech.beyondscale.mitra.data.local.PrefStore
 import tech.beyondscale.mitra.data.local.shareForRepository
@@ -74,6 +75,8 @@ class MoneyRepositoryImpl(
     private val clock: AppClock,
     scope: CoroutineScope,
     private val io: CoroutineDispatcher = Dispatchers.IO,
+    /** The `limit` of `money/bootstrap`'s transaction list (mitra-backend money.controller.ts). */
+    private val bootstrapTxLimit: Int = 5000,
 ) : MoneyRepository {
     /** Bumped before every local write and every applied server echo — see `TasksRepositoryImpl.writes`. */
     private val writes = MutableStateFlow(0L)
@@ -96,12 +99,18 @@ class MoneyRepositoryImpl(
                 applyEcho(TRANSACTION, dto.id) {
                     // Deleted locally while the write was in flight: don't resurrect it. Balances already moved locally
                     // when the write was made; the echo never moves them again.
-                    if (db.transactionsQueries.selectById(dto.id).executeAsOneOrNull() != null) {
-                        db.transactionsQueries.upsert(dto.toDomain().scrubbed(deletedRefs()).toRow())
-                    }
+                    val local = selectTransaction(dto.id) ?: return@applyEcho
+                    val tx = dto.toDomain().scrubbed(deletedRefs())
+                    db.transactionsQueries.upsert(tx.toRow())
+                    // The local write already moved the balances; only a difference the server made moves them again.
+                    rebalance(local, tx)
                 }
             }
             override suspend fun onRejected(error: AppError) { refresh() }
+            override suspend fun onRejected(error: AppError, row: Outbox) {
+                row.entityId?.let { markRejected(it) }
+                refresh()
+            }
         })
         engine.register(CATEGORY, object : SyncHandler {
             override suspend fun onSuccess(response: JsonElement?) {
@@ -145,6 +154,8 @@ class MoneyRepositoryImpl(
                         // A missing local copy with nothing queued for it is taken as is.
                         if (tx.id !in pendingIds(TRANSACTION)) {
                             db.transactionsQueries.upsert((if (local != null) tx.copy(time = local.time) else tx).toRow())
+                            // e.g. the bill's amount was changed on the web before the payment reached the server.
+                            if (local != null) rebalance(local, tx)
                         }
                         if (dto.recurring.id !in pendingIds(RECURRING) + pendingIds(RECURRING_PAY)) echoRecurring(dto.recurring)
                     }
@@ -153,6 +164,11 @@ class MoneyRepositoryImpl(
             // e.g. 400 NO_ACCOUNT, or the third `500 INTERNAL` of a resend whose transaction id the server already has
             // (a duplicate id is an unhandled error there, indistinguishable from any other): the server copy decides.
             override suspend fun onRejected(error: AppError) { refresh() }
+            override suspend fun onRejected(error: AppError, row: Outbox) {
+                val txId = row.body?.let { runCatching { api.json.parseToJsonElement(it).jsonObject["id"]?.jsonPrimitive?.contentOrNull }.getOrNull() }
+                txId?.let { markRejected(it) }
+                refresh()
+            }
         })
     }
 
@@ -200,9 +216,11 @@ class MoneyRepositoryImpl(
         // An account the server no longer lists (archived on the web) stays while a queued transaction or payment
         // uses it, so a pending transaction never points at an account the device has dropped; a later refresh
         // removes it.
-        // Accounts whose local balance is kept: it must still follow every non-pending transaction the server added,
-        // changed or removed since (edits on the web, and our own writes the server rejected), so those differences
-        // are applied to it below. Accounts new to the device take the server's balance, which already has them.
+        // Accounts whose local balance is kept: it must still follow every non-pending transaction the server added
+        // or changed since (edits on the web, and our own writes the server rejected), and every transaction known to
+        // be gone there, so those differences are applied to it below. Accounts new to the device take the server's
+        // balance, which already has them. Changes the server makes to an account's balance directly (an account
+        // edited on the web) are not transactions: they show up only once the queue has drained.
         val keptBalances = if (keepBalances) db.accountsQueries.selectIds().executeAsList().toSet() else emptySet()
         fun move(tx: Transaction, sign: Int) = db.applyEffects(balanceEffects(tx).filter { it.first in keptBalances }, sign)
         val stillUsed = pendingTx.mapNotNull { selectTransaction(it) }.flatMap { listOfNotNull(it.accountId, it.toAccountId) }.toSet()
@@ -225,14 +243,25 @@ class MoneyRepositoryImpl(
         // margin for the time-zone difference) missing from the answer is simply outside it, never deleted. Every
         // row the server does send is taken (e.g. an old one whose date was moved into the window on the web).
         val windowStart = addDays(addMonthsJs(today, -12), WINDOW_MARGIN_DAYS)
-        val inWindow = db.transactionsQueries.selectIdsOnOrAfter(windowStart).executeAsList().toSet()
+        // A full list may have been cut at the limit: only rows newer than its oldest day are known to be complete.
+        val deleteFrom = if (body.transactions.size >= bootstrapTxLimit) {
+            maxOf(windowStart, addDays(body.transactions.minOf { it.date }, 1))
+        } else {
+            windowStart
+        }
+        val inWindow = db.transactionsQueries.selectIdsOnOrAfter(deleteFrom).executeAsList().toSet()
+        val rejected = rejectedTxIds()
         // A category (bill) whose DELETE is still queued: the server unlinks its transactions once it lands; do so now.
         val incoming = body.transactions.map { it.toDomain().scrubbed(deleted) }
         val serverTx = incoming.map { it.id }.toSet()
-        inWindow.filter { it !in serverTx && it !in pendingTx }.forEach { id ->
+        // A write the server refused is positively gone there (whatever its date): its balance effect is undone.
+        // Any other row missing from the list may merely have left it (re-dated on the web, or past the limit), so
+        // the balance — which still counts it on the server too — is left alone.
+        db.transactionsQueries.selectIds().executeAsList().filter { it in rejected && it !in serverTx && it !in pendingTx }.forEach { id ->
             selectTransaction(id)?.let { move(it, -1) }
             db.transactionsQueries.delete(id)
         }
+        inWindow.filter { it !in serverTx && it !in pendingTx && it !in rejected }.forEach { db.transactionsQueries.delete(it) }
         incoming.filter { it.id !in pendingTx }.forEach { tx ->
             val old = selectTransaction(tx.id)
             if (old != tx) {
@@ -241,6 +270,8 @@ class MoneyRepositoryImpl(
             }
             db.transactionsQueries.upsert(tx.toRow())
         }
+        // Settled — except a refused id that still has a queued write (e.g. a PATCH after its refused create).
+        setRejectedTxIds(rejected intersect pendingTx)
 
         // Recurring (a queued "Mark paid" counts as a pending change to its bill).
         val serverRecurring = body.recurring.map { it.id }.toSet()
@@ -455,6 +486,24 @@ class MoneyRepositoryImpl(
         db.transactionsQueries.upsert(tx.toRow())
         db.applyEffects(balanceEffects(tx), 1)
         outbox.enqueue(TRANSACTION, "POST", "money/transactions", tx.createBody(), entityId = tx.id)
+    }
+
+    /** Moves balances from [old]'s effects to [new]'s (nothing when they agree). Call inside a transaction. */
+    private fun rebalance(old: Transaction, new: Transaction) {
+        db.applyEffects(balanceEffects(old), -1)
+        db.applyEffects(balanceEffects(new), 1)
+    }
+
+    private fun rejectedTxIds(): Set<String> =
+        prefs.get(PrefKeys.MONEY_REJECTED_TX)?.split(',')?.filter { it.isNotEmpty() }?.toSet().orEmpty()
+
+    private fun setRejectedTxIds(ids: Set<String>) {
+        if (ids.isEmpty()) prefs.remove(PrefKeys.MONEY_REJECTED_TX) else prefs.put(PrefKeys.MONEY_REJECTED_TX, ids.joinToString(","))
+    }
+
+    /** Remembers (persisted) that the server refused a write of this transaction, for the next refresh. */
+    private suspend fun markRejected(txId: String) = withContext(io) {
+        db.transaction { setRejectedTxIds(rejectedTxIds() + txId) }
     }
 
     /** Ids of the transactions created by queued "Mark paid" rows (whose `entityId` is the bill). */

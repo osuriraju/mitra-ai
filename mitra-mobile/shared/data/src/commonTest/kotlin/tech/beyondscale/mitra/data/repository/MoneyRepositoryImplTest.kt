@@ -58,12 +58,12 @@ class MoneyRepositoryImplTest {
 
     private class Env(val repo: MoneyRepositoryImpl, val engine: SyncEngine, val prefs: PrefStore)
 
-    private fun TestScope.env(): Env {
+    private fun TestScope.env(bootstrapTxLimit: Int = 5000): Env {
         val io = UnconfinedTestDispatcher(testScheduler)
         val engine = SyncEngine(api, db, {}, backgroundScope, io, debounceMs = 60_000)
         val prefs = PrefStore(db, io)
         prefs.put(PrefKeys.LAST_USER_ID, "u1")
-        return Env(MoneyRepositoryImpl(api, db, prefs, writer, engine, clock, backgroundScope, io), engine, prefs)
+        return Env(MoneyRepositoryImpl(api, db, prefs, writer, engine, clock, backgroundScope, io, bootstrapTxLimit), engine, prefs)
     }
 
     /* ---------- fixtures ---------- */
@@ -451,6 +451,120 @@ class MoneyRepositoryImplTest {
         assertNotNull(localTx("t2"))
         assertEquals(listOf(other.id, "t1", "t2").sorted(), txIds())
         assertEquals(95000L, balance()) // the server's 1000 plus the queued −50
+    }
+
+    @Test fun rejectedIdsAreRememberedUntilARefreshSettlesThem() = runTest {
+        val e = env()
+        seedAccount(100000)
+        server.offline = true
+        val bad = e.repo.addTransaction(expense(30000))
+        server.offline = false
+        server.routes["POST /api/money/transactions"] = { json(errorJson("VALIDATION", "Bad"), HttpStatusCode.BadRequest) }
+        server.routes["GET /api/money/bootstrap"] = { throw Exception("connection reset") } // the follow-up refresh fails
+        assertEquals(SyncEngine.Result.Drained, e.engine.drain())
+        assertEquals(bad.id, e.prefs.get(PrefKeys.MONEY_REJECTED_TX))
+        server.routes["GET /api/money/bootstrap"] = { json(bootstrap(emptyList(), listOf(accountJson(balance = "1000")))) }
+        assertIs<Outcome.Ok<Unit>>(e.repo.refresh())
+        assertNull(e.prefs.get(PrefKeys.MONEY_REJECTED_TX))
+        assertEquals(emptyList(), txIds())
+        assertEquals(100000L, balance())
+    }
+
+    @Test fun rejectedCreateOutsideTheWindowIsReversed() = runTest {
+        val e = env()
+        seedAccount(100000)
+        server.offline = true
+        val bad = e.repo.addTransaction(expense(30000).copy(date = "2025-01-01"))
+        val other = e.repo.addTransaction(expense(5000))
+        server.offline = false
+        server.routes["POST /api/money/transactions"] = { req ->
+            if (bad.id in req.body.toByteArray().decodeToString()) json(errorJson("VALIDATION", "Bad"), HttpStatusCode.BadRequest)
+            else throw Exception("connection reset")
+        }
+        server.routes["GET /api/money/bootstrap"] = { json(bootstrap(emptyList(), listOf(accountJson(balance = "1000")))) }
+        e.engine.drain(scheduleRetryOnFailure = false)
+        assertEquals(listOf(other.id), txIds())
+        assertEquals(95000L, balance())
+    }
+
+    @Test fun refreshWhilePendingDoesNotCreditARowThatLeftTheList() = runTest {
+        val e = env()
+        seedAccount(100000)
+        seedTx("t1", 10000) // re-dated out of the 12 months on the web: still on the server, still in its balance
+        server.offline = true
+        e.repo.addTransaction(expense(5000))
+        server.offline = false
+        server.routes["GET /api/money/bootstrap"] = { json(bootstrap(emptyList(), listOf(accountJson(balance = "1000")))) }
+        assertIs<Outcome.Ok<Unit>>(e.repo.refresh())
+        assertNull(localTx("t1"))
+        assertEquals(95000L, balance())
+    }
+
+    @Test fun truncatedListOnlyDeletesRowsNewerThanItsOldestDay() = runTest {
+        val e = env(bootstrapTxLimit = 2)
+        seedTx("older", 1000, date = "2026-10-01")
+        seedTx("same-day", 1000, date = "2026-10-05")
+        seedTx("gone", 1000, date = "2026-10-08")
+        server.routes["GET /api/money/bootstrap"] = { json(bootstrap(listOf(txJson("a", "10", date = "2026-10-10"), txJson("b", "10", date = "2026-10-05")))) }
+        assertIs<Outcome.Ok<Unit>>(e.repo.refresh())
+        assertEquals(listOf("a", "b", "older", "same-day"), txIds())
+    }
+
+    @Test fun transferChangedOnTheWebMovesBothKeptAccounts() = runTest {
+        val e = env()
+        seedAccount(100000)
+        seedAccount(50000, id = bank)
+        db.transactionsQueries.upsert(Transaction("tr", TxKind.Transfer, 10000, null, cash, bank, "", null, "2026-10-10", "10:00").toRow())
+        server.offline = true
+        e.repo.addTransaction(expense(5000))
+        server.offline = false
+        val transfer = txJson("tr", "250", kind = "transfer", categoryId = null).replace("\"merchant\"", "\"toAccountId\":\"$bank\",\"merchant\"")
+        server.routes["GET /api/money/bootstrap"] = {
+            json(bootstrap(listOf(transfer), listOf(accountJson(balance = "850"), accountJson(bank, "HDFC", "650"))))
+        }
+        assertIs<Outcome.Ok<Unit>>(e.repo.refresh())
+        assertEquals(100000L - 5000L - 15000L, balance())
+        assertEquals(50000L + 15000L, balance(bank))
+    }
+
+    @Test fun accountNewToTheDeviceTakesTheServerBalanceWhileOthersAreKept() = runTest {
+        val e = env()
+        seedAccount(100000)
+        server.offline = true
+        e.repo.addTransaction(expense(5000))
+        server.offline = false
+        // The new account comes with a transaction the device has never seen; its balance already counts it.
+        server.routes["GET /api/money/bootstrap"] = {
+            json(bootstrap(listOf(txJson("w1", "20", categoryId = null).replace(cash, bank)), listOf(accountJson(balance = "1000"), accountJson(bank, "HDFC", "480"))))
+        }
+        assertIs<Outcome.Ok<Unit>>(e.repo.refresh())
+        assertEquals(95000L, balance())
+        assertEquals(48000L, balance(bank))
+    }
+
+    @Test fun echoesMoveBalancesWhenTheServerChangedTheAmount() = runTest {
+        val e = env()
+        seedAccount(10000000)
+        seedRent()
+        server.offline = true
+        val payTx = assertIs<PayResult.Paid>(e.repo.payRecurring(rentId)).transaction
+        val edited = e.repo.addTransaction(expense(5000))
+        e.repo.addTransaction(expense(1000)) // stays queued
+        assertEquals(10000000L - 1500000L - 6000L, balance())
+        server.offline = false
+        // Rent was changed to 16,000 on the web before the payment arrived; the 50 became 55 on the server.
+        server.routes["POST /api/money/recurring/$rentId/pay"] = {
+            json("""{"transaction":${txJson(payTx.id, "16000", date = "2026-10-14", categoryId = null)},"recurring":{"id":"$rentId","name":"Rent","emoji":"🏠","amount":16000,"day":5,"method":"UPI","kind":"bill","reminder":true,"lastPaidOn":"2026-10-14"}}""")
+        }
+        var posts = 0
+        server.routes["POST /api/money/transactions"] = {
+            posts++
+            if (posts == 1) json(txJson(edited.id, "55", date = "2026-10-14", categoryId = null)) else throw Exception("connection reset")
+        }
+        assertEquals(SyncEngine.Result.Offline, e.engine.drain(scheduleRetryOnFailure = false))
+        assertEquals(1600000L, localTx(payTx.id)!!.amountPaise)
+        assertEquals(5500L, localTx(edited.id)!!.amountPaise)
+        assertEquals(10000000L - 1600000L - 5500L - 1000L, balance())
     }
 
     @Test fun refreshWhilePendingFollowsTransactionsChangedOnTheWeb() = runTest {

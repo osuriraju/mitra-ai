@@ -9,6 +9,8 @@ import tech.beyondscale.mitra.data.db.MitraDb
 object PrefKeys {
     const val THEME = "theme"
     const val LAST_USER_ID = "lastUserId"
+    /** Comma-separated ids of money transactions whose write the server refused, until a refresh settles them. */
+    const val MONEY_REJECTED_TX = "moneyRejectedTx"
 }
 
 /** Synchronous key/value access; callers on the main thread wrap calls in withContext(io). */
