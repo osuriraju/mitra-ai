@@ -184,3 +184,41 @@ fun Transaction.patchBody(): JsonObject = buildJsonObject {
     put("date", date)
     put("time", time)
 }
+
+/** `POST money/categories` body (web `addCategory`: `budget` as rupees or null). */
+fun Category.createBody(): JsonObject = buildJsonObject {
+    put("id", id)
+    put("name", name)
+    put("emoji", emoji)
+    put("kind", kind.wire)
+    put("budget", budgetPaise?.let(::paiseToRupees))
+}
+
+/** `POST money/recurring` body: every field present, unset references as JSON null. */
+fun Recurring.createBody(): JsonObject = buildJsonObject {
+    put("id", id)
+    put("name", name)
+    put("emoji", emoji)
+    put("amount", paiseToRupees(amountPaise))
+    put("day", day)
+    put("method", method)
+    put("kind", kind.wire)
+    put("reminder", reminder)
+    put("categoryId", categoryId.ref())
+    put("accountId", accountId.ref())
+    put("toAccountId", toAccountId.ref())
+}
+
+/** `POST money/subscriptions` body: the web sends its locally computed `next`, `color` and `letter` too. */
+fun Subscription.createBody(): JsonObject = buildJsonObject {
+    put("id", id)
+    put("name", name)
+    put("amount", paiseToRupees(amountPaise))
+    put("cycle", cycle.wire)
+    put("next", next)
+    put("color", color)
+    put("letter", letter)
+    put("lastUsed", lastUsed)
+    put("categoryId", categoryId.ref())
+    put("accountId", accountId.ref())
+}
