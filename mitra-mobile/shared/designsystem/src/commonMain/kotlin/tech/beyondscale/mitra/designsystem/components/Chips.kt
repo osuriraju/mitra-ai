@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
@@ -19,7 +20,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -51,6 +55,7 @@ fun MitraChip(
             ChipTone.Outline -> Triple(Color.Transparent, c.muted, c.border)
         }
     }
+    // Wrap with a 48dp touch target without growing the visible pill.
     Box(
         modifier
             .then(
@@ -59,22 +64,31 @@ fun MitraChip(
                         .semantics { this.selected = selected }
                         .clickable(role = Role.Button, onClick = onClick)
                 } else Modifier,
-            ),
+            )
+            // Remove is also a custom action so it stays reachable when the chip merges its children.
+            .semantics(mergeDescendants = onClick != null || onRemove != null) {
+                if (onRemove != null) customActions = listOf(CustomAccessibilityAction("Remove $text") { onRemove(); true })
+            },
         contentAlignment = Alignment.Center,
     ) {
-        Row(
-            Modifier.heightIn(min = 32.dp).clip(CircleShape).background(bg).border(1.dp, border, CircleShape)
-                .padding(horizontal = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(5.dp),
-        ) {
-            if (icon != null) Icon(icon, contentDescription = null, tint = fg, modifier = Modifier.size(14.dp))
-            Text(text, style = Mitra.type.xs.copy(fontWeight = FontWeight.SemiBold), color = fg)
+        Box(Modifier.padding(end = if (onRemove != null) 7.dp else 0.dp)) {
+            Row(
+                Modifier.heightIn(min = 32.dp).clip(CircleShape).background(bg).border(1.dp, border, CircleShape)
+                    .padding(start = 10.dp, end = if (onRemove != null) 27.dp else 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(5.dp),
+            ) {
+                if (icon != null) Icon(icon, contentDescription = null, tint = fg, modifier = Modifier.size(14.dp))
+                Text(text, style = Mitra.type.xs.copy(fontWeight = FontWeight.SemiBold), color = fg)
+            }
             if (onRemove != null) {
-                Icon(
-                    MitraIcons.X, contentDescription = "Remove $text", tint = fg,
-                    modifier = Modifier.size(14.dp).clickable(role = Role.Button, onClick = onRemove),
-                )
+                // 48dp touch area centred on a 14dp glyph; visual chip height stays 32dp.
+                Box(
+                    Modifier.align(Alignment.CenterEnd).offset(x = 7.dp).size(48.dp).clip(CircleShape)
+                        .clickable(role = Role.Button, onClickLabel = "Remove $text", onClick = onRemove)
+                        .clearAndSetSemantics { },
+                    contentAlignment = Alignment.Center,
+                ) { Icon(MitraIcons.X, contentDescription = null, tint = fg, modifier = Modifier.size(14.dp)) }
             }
         }
     }

@@ -51,7 +51,7 @@ fun MitraTextField(
             value = value,
             onValueChange = onValueChange,
             modifier = Modifier.fillMaxWidth().then(fieldModifier),
-            singleLine = singleLine,
+            singleLine = singleLine && minLines <= 1,
             minLines = minLines,
             placeholder = placeholder?.let { { Text(it, style = Mitra.type.body, color = c.faint) } },
             isError = error != null,
