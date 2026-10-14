@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { Goal, GoalProgress, Milestone, Prisma } from '@prisma/client';
 import { ActivityService } from '../activity/activity.service';
 import { fromISODate, toISODate, todayISO } from '../common/money';
@@ -7,6 +7,7 @@ import { CreateGoal, LogProgress, MilestoneInput, UpdateGoal, UpdateMilestone } 
 
 type Full = Goal & { milestones: Milestone[]; progress: GoalProgress[] };
 const INCLUDE = { milestones: { orderBy: [{ order: 'asc' }, { createdAt: 'asc' }] }, progress: { orderBy: { date: 'asc' } } } satisfies Prisma.GoalInclude;
+const idInUse = () => new ConflictException({ code: 'ID_CONFLICT', message: 'That progress id is already in use' });
 const reviewGap = (every: string) => (every === 'Weekly' ? 7 : every === 'Quarterly' ? 90 : 30);
 const plusDays = (iso: string, n: number) => { const d = fromISODate(iso); d.setUTCDate(d.getUTCDate() + n); return d; };
 
@@ -48,19 +49,45 @@ export class GoalsService {
 
   async remove(userId: string, id: string) { await this.own(userId, id); await this.prisma.goal.delete({ where: { id } }); return { ok: true }; }
 
-  /** Numeric goals add the value; other types set it. Auto-ticks value milestones and completes the goal at target. */
+  /**
+   * Numeric goals add the value; other types set it. Auto-ticks value milestones and completes the goal at target.
+   * Atomic (progress point, goal current/status, milestone ticks and activity commit together) and idempotent on the
+   * client's progress id: a retry of a log that already landed returns the goal without applying the value again;
+   * an id already used by another goal's (or another user's) progress point is a 409.
+   */
   async logProgress(userId: string, id: string, input: LogProgress) {
-    const g = await this.prisma.goal.findFirst({ where: { id, userId }, include: INCLUDE }); if (!g) throw new NotFoundException({ code: 'NOT_FOUND', message: 'Goal not found' });
-    const current = g.type === 'numeric' ? g.current + input.value : input.value; const date = fromISODate(input.date ?? todayISO());
-    const out = await this.prisma.$transaction(async (db) => {
-      for (const m of g.milestones) if (m.target != null && !m.reachedOn && current >= m.target) await db.milestone.update({ where: { id: m.id }, data: { reachedOn: date } });
-      await db.goalProgress.create({ data: { goalId: id, date, value: current, note: input.note ?? null } });
-      const done = g.type !== 'milestone' && g.type !== 'habit' && current >= g.target;
-      const updated = await db.goal.update({ where: { id }, data: { current, ...(done && g.status === 'active' ? { status: 'completed' } : {}), version: { increment: 1 } }, include: INCLUDE });
-      await this.activity.log(userId, { module: 'goals', entityId: id, icon: 'target', tone: 'accent', text: `Progress logged · ${g.name}` }, db);
-      return updated;
-    });
-    return goalOut(out);
+    if (input.id) { const prior = await this.priorProgress(userId, id, input.id); if (prior) return prior; }
+    try {
+      const out = await this.prisma.$transaction(async (db) => {
+        await this.own(userId, id, db);
+        // The first write locks the goal row, so concurrent logs on the same goal add up instead of losing one another.
+        const g = await db.goal.update({ where: { id }, data: { version: { increment: 1 } }, include: INCLUDE });
+        const current = g.type === 'numeric' ? g.current + input.value : input.value; const date = fromISODate(input.date ?? todayISO());
+        await db.goalProgress.create({ data: { id: input.id, goalId: id, date, value: current, note: input.note ?? null } });
+        for (const m of g.milestones) if (m.target != null && !m.reachedOn && current >= m.target) await db.milestone.update({ where: { id: m.id }, data: { reachedOn: date } });
+        const done = g.type !== 'milestone' && g.type !== 'habit' && current >= g.target;
+        const updated = await db.goal.update({ where: { id }, data: { current, ...(done && g.status === 'active' ? { status: 'completed' } : {}) }, include: INCLUDE });
+        await this.activity.log(userId, { module: 'goals', entityId: id, icon: 'target', tone: 'accent', text: `Progress logged · ${g.name}` }, db);
+        return updated;
+      });
+      return goalOut(out);
+    } catch (e) {
+      // Lost a race with a concurrent request carrying the same id: the winner's log is the answer.
+      if (input.id && e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
+        const prior = await this.priorProgress(userId, id, input.id);
+        if (prior) return prior;
+        throw idInUse();
+      }
+      throw e;
+    }
+  }
+
+  /** The goal as it stands after the earlier log that used `progressId`, null when the id is unused; 409 when it belongs to anything else. */
+  private async priorProgress(userId: string, goalId: string, progressId: string) {
+    const p = await this.prisma.goalProgress.findUnique({ where: { id: progressId }, include: { goal: { select: { userId: true } } } });
+    if (!p) return null;
+    if (p.goalId !== goalId || p.goal.userId !== userId) throw idInUse();
+    return this.get(goalId);
   }
 
   /* ---------- milestones ---------- */
@@ -85,8 +112,8 @@ export class GoalsService {
 
   private msData(m: MilestoneInput, order: number) { return { id: m.id, title: m.title, target: m.target ?? null, targetDate: m.targetDate ? fromISODate(m.targetDate) : null, reachedOn: m.reachedOn ? fromISODate(m.reachedOn) : null, notes: m.notes ?? null, order }; }
   private async get(id: string) { return goalOut((await this.prisma.goal.findUnique({ where: { id }, include: INCLUDE }))!); }
-  private async own(userId: string, id: string) {
-    const g = await this.prisma.goal.findFirst({ where: { id, userId } });
+  private async own(userId: string, id: string, db: Prisma.TransactionClient | PrismaService = this.prisma) {
+    const g = await db.goal.findFirst({ where: { id, userId } });
     if (!g) throw new NotFoundException({ code: 'NOT_FOUND', message: 'Goal not found' });
     return g;
   }

@@ -19,6 +19,7 @@ export const UpdateGoalSchema = z.object({
   name: z.string().trim().min(1).max(160).optional(), type: type.optional(), term: term.optional(), due: isoDate.optional(), startedOn: isoDate.optional(), current: num.optional(), target: num.optional(), unit: z.enum(['₹', '']).optional(),
   formula: z.string().max(500).nullable().optional(), nextAction: z.string().trim().max(200).optional(), reviewEvery: reviewEvery.optional(), reviewOn: isoDate.optional(), status: status.optional(), notes: z.string().max(20_000).optional(),
 });
-export const LogProgressSchema = z.object({ value: num, note: z.string().trim().max(500).nullable().optional(), date: isoDate.optional() });
+/** `id` (optional) is the client's progress-point id — the idempotency key for retries. */
+export const LogProgressSchema = z.object({ id: id.optional(), value: num, note: z.string().trim().max(500).nullable().optional(), date: isoDate.optional() });
 
 export type CreateGoal = z.infer<typeof CreateGoalSchema>; export type UpdateGoal = z.infer<typeof UpdateGoalSchema>; export type MilestoneInput = z.infer<typeof MilestoneInputSchema>; export type UpdateMilestone = z.infer<typeof UpdateMilestoneSchema>; export type LogProgress = z.infer<typeof LogProgressSchema>;
