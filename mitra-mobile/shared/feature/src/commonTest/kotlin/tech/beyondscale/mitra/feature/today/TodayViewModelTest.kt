@@ -19,6 +19,12 @@ import tech.beyondscale.mitra.domain.model.Task
 import tech.beyondscale.mitra.feature.common.HapticKind
 import tech.beyondscale.mitra.feature.common.UiEvent
 import tech.beyondscale.mitra.testing.FakeTasksRepository
+import tech.beyondscale.mitra.testing.FakeMoneyRepository
+import tech.beyondscale.mitra.domain.model.Category
+import tech.beyondscale.mitra.domain.model.CategoryKind
+import tech.beyondscale.mitra.domain.model.Modules
+import tech.beyondscale.mitra.domain.model.Transaction
+import tech.beyondscale.mitra.domain.model.TxKind
 import tech.beyondscale.mitra.testing.FakeAuthRepository
 import tech.beyondscale.mitra.testing.FixedClock
 import tech.beyondscale.mitra.testing.ViewModelTest
@@ -32,7 +38,7 @@ class TodayViewModelTest : ViewModelTest() {
     private val clock = FixedClock(Instant.parse("2026-10-13T04:30:00Z"), TimeZone.of("Asia/Kolkata"))
 
     @Test fun greetsByFirstNameInLocalTime() {
-        val vm = TodayViewModel(FakeAuthRepository(SessionState.SignedIn(testUser())), FakeTasksRepository(today = "2026-10-13"), clock)
+        val vm = TodayViewModel(FakeAuthRepository(SessionState.SignedIn(testUser())), FakeTasksRepository(today = "2026-10-13"), FakeMoneyRepository(), clock)
         assertEquals("Good morning, Raju", vm.state.value.greeting)
         assertEquals("Tuesday, 13 October 2026 · 10:00 AM", vm.state.value.dateLine)
         assertEquals(listOf("Tasks", "Habits", "Spent today", "Sleep"), vm.state.value.stats.map { it.label })
@@ -41,7 +47,7 @@ class TodayViewModelTest : ViewModelTest() {
     @OptIn(ExperimentalCoroutinesApi::class)
     @Test fun headerRefreshesAsTheClockAdvances() = runTest {
         Dispatchers.setMain(StandardTestDispatcher(testScheduler))
-        val vm = TodayViewModel(FakeAuthRepository(SessionState.SignedIn(testUser())), FakeTasksRepository(today = "2026-10-13"), clock)
+        val vm = TodayViewModel(FakeAuthRepository(SessionState.SignedIn(testUser())), FakeTasksRepository(today = "2026-10-13"), FakeMoneyRepository(), clock)
         backgroundScope.launch { vm.state.collect {} }
         runCurrent()
         assertEquals("Good morning, Raju", vm.state.value.greeting)
@@ -54,10 +60,10 @@ class TodayViewModelTest : ViewModelTest() {
 
     private val today = "2026-10-13"
 
-    private fun TestScope.vmWith(tasks: List<Task>, settings: Settings = Settings()): Pair<TodayViewModel, FakeTasksRepository> {
+    private fun TestScope.vmWith(tasks: List<Task>, settings: Settings = Settings(), money: FakeMoneyRepository = FakeMoneyRepository()): Pair<TodayViewModel, FakeTasksRepository> {
         Dispatchers.setMain(StandardTestDispatcher(testScheduler))
         val repo = FakeTasksRepository(tasks, today = today)
-        val vm = TodayViewModel(FakeAuthRepository(SessionState.SignedIn(testUser(settings = settings))), repo, clock)
+        val vm = TodayViewModel(FakeAuthRepository(SessionState.SignedIn(testUser(settings = settings))), repo, money, clock)
         backgroundScope.launch { vm.state.collect {} }
         runCurrent()
         return vm to repo
@@ -107,5 +113,46 @@ class TodayViewModelTest : ViewModelTest() {
         vm.onAction(undo)
         runCurrent()
         assertEquals(false, repo.taskFlow.value.first { it.id == "b" }.done)
+    }
+
+    private fun tx(id: String, amount: Long, date: String) =
+        Transaction(id, TxKind.Expense, amount, "c1", "a1", null, "m", null, date, "10:00")
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test fun spentTodayStat() = runTest {
+        val cat = Category("c1", "Food", "🍛", CategoryKind.Expense, budgetPaise = 3_000_000)
+        val money = FakeMoneyRepository(
+            categories = listOf(cat),
+            transactions = listOf(tx("t1", 45_000, today), tx("t2", 1_795_000, "2026-10-02")),
+        )
+        val (vm, _) = vmWith(emptyList(), money = money)
+        val stat = vm.state.value.stats.first { it.label == "Spent today" }
+        assertEquals("₹450", stat.value)
+        assertEquals("61% of month budget used", stat.sub)
+        assertEquals(StatTarget.Money, stat.target)
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test fun moneyCardRollsOverAtLocalMidnight() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val night = FixedClock(Instant.parse("2026-10-31T18:29:00Z"), TimeZone.of("Asia/Kolkata")) // 23:59 IST
+        val cat = Category("c1", "Food", "🍛", CategoryKind.Expense, budgetPaise = 3_000_000)
+        val money = FakeMoneyRepository(categories = listOf(cat), transactions = listOf(tx("t1", 45_000, "2026-10-31")))
+        val vm = TodayViewModel(FakeAuthRepository(SessionState.SignedIn(testUser())), FakeTasksRepository(today = "2026-10-31"), money, night)
+        backgroundScope.launch { vm.state.collect {} }
+        runCurrent()
+        assertEquals("1 day left in Oct", vm.state.value.money?.daysLeft)
+        assertEquals("₹450", vm.state.value.stats.first { it.label == "Spent today" }.value)
+
+        night.instant = Instant.parse("2026-10-31T18:30:30Z") // 00:00:30 IST on 1 Nov
+        advanceTimeBy(60_002)
+        assertEquals("30 days left in Nov", vm.state.value.money?.daysLeft)
+        assertEquals("₹0", vm.state.value.stats.first { it.label == "Spent today" }.value)
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test fun moneyHiddenWhenModuleOff() = runTest {
+        val (vm, _) = vmWith(emptyList(), Settings(modules = Modules(money = false)))
+        assertEquals(null, vm.state.value.money)
     }
 }

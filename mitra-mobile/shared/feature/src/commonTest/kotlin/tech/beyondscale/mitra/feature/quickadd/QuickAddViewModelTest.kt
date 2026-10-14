@@ -9,7 +9,13 @@ import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.datetime.TimeZone
+import tech.beyondscale.mitra.domain.model.Account
+import tech.beyondscale.mitra.domain.model.AccountKind
+import tech.beyondscale.mitra.domain.model.Category
+import tech.beyondscale.mitra.domain.model.CategoryKind
 import tech.beyondscale.mitra.domain.model.Priority
+import tech.beyondscale.mitra.domain.model.TxKind
+import tech.beyondscale.mitra.testing.FakeMoneyRepository
 import tech.beyondscale.mitra.domain.model.Project
 import tech.beyondscale.mitra.feature.common.HapticKind
 import tech.beyondscale.mitra.feature.common.UiEvent
@@ -20,6 +26,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 import kotlin.time.Instant
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -30,8 +37,11 @@ class QuickAddViewModelTest : ViewModelTest() {
 
     private class Harness(val vm: QuickAddViewModel, val events: List<UiEvent<QuickAddAction>>)
 
-    private fun TestScope.start(repo: FakeTasksRepository): Harness {
-        val vm = QuickAddViewModel(repo, clock)
+    private val food = Category("c1", "Food & dining", "🍛", CategoryKind.Expense, slug = "food")
+    private val acct = Account("a1", "HDFC", "1234", AccountKind.Bank, 100_000_00)
+
+    private fun TestScope.start(repo: FakeTasksRepository, money: FakeMoneyRepository = FakeMoneyRepository(listOf(acct), listOf(food))): Harness {
+        val vm = QuickAddViewModel(repo, money, clock)
         val events = mutableListOf<UiEvent<QuickAddAction>>()
         val d = UnconfinedTestDispatcher(testScheduler)
         backgroundScope.launch(d) { vm.state.collect {} }
@@ -110,14 +120,72 @@ class QuickAddViewModelTest : ViewModelTest() {
         assertEquals(emptyList(), repo.calls)
     }
 
-    @Test fun otherTypesAreScaffolded() = runTest {
+    @Test fun expenseChipParsesAmountAndCategory() = runTest {
+        val h = start(FakeTasksRepository())
+        h.vm.onAction(QuickAddAction.Type(QuickType.Expense))
+        h.vm.onAction(QuickAddAction.Text("₹240 food lunch"))
+        runCurrent()
+        val s = h.vm.state.value
+        assertEquals("₹240", s.amountLabel)
+        assertEquals("🍛 Food & dining", s.categoryLabel)
+        assertTrue(s.canSave)
+    }
+
+    @Test fun saveExpenseUsesDefaultAccountAndLocalDate() = runTest {
+        val money = FakeMoneyRepository(listOf(acct), listOf(food))
+        val late = FixedClock(Instant.parse("2026-10-31T19:00:00Z"), TimeZone.of("Asia/Kolkata")) // 2026-11-01 00:30 IST
+        val vm = QuickAddViewModel(FakeTasksRepository(), money, late)
+        val events = mutableListOf<UiEvent<QuickAddAction>>()
+        val d = UnconfinedTestDispatcher(testScheduler)
+        backgroundScope.launch(d) { vm.state.collect {} }
+        backgroundScope.launch(d) { vm.events.toList(events) }
+        vm.onAction(QuickAddAction.Type(QuickType.Expense))
+        vm.onAction(QuickAddAction.Text("₹240 food lunch"))
+        vm.onAction(QuickAddAction.Save)
+        runCurrent()
+        val tx = money.transactionFlow.value.single()
+        assertEquals("2026-11-01", tx.date)
+        assertEquals("00:30", tx.time)
+        assertEquals("a1", tx.accountId)
+        assertEquals("c1", tx.categoryId)
+        assertEquals(24_000L, tx.amountPaise)
+        assertEquals(TxKind.Expense, tx.kind)
+        assertEquals("food lunch", tx.merchant)
+        assertEquals(UiEvent.Snack("Expense saved · ₹240", QuickAddAction.UndoExpense("tx1")), events.first())
+        vm.onAction(QuickAddAction.UndoExpense("tx1"))
+        runCurrent()
+        assertEquals(emptyList(), money.transactionFlow.value)
+    }
+
+    @Test fun clearAmountDisablesSave() = runTest {
+        val h = start(FakeTasksRepository())
+        h.vm.onAction(QuickAddAction.Type(QuickType.Expense))
+        h.vm.onAction(QuickAddAction.Text("₹240 food"))
+        h.vm.onAction(QuickAddAction.ClearAmount)
+        runCurrent()
+        assertFalse(h.vm.state.value.canSave)
+        assertNull(h.vm.state.value.amountLabel)
+    }
+
+    @Test fun noAccountShowsError() = runTest {
+        val money = FakeMoneyRepository(categories = listOf(food))
+        val h = start(FakeTasksRepository(), money)
+        h.vm.onAction(QuickAddAction.Type(QuickType.Expense))
+        h.vm.onAction(QuickAddAction.Text("₹240 food"))
+        h.vm.onAction(QuickAddAction.Save)
+        runCurrent()
+        assertEquals("Add an account first", h.vm.state.value.error)
+        assertEquals(emptyList(), money.calls)
+    }
+
+    @Test fun otherTypesStillArriveLater() = runTest {
         val repo = FakeTasksRepository()
         val h = start(repo)
         h.vm.onAction(QuickAddAction.Text("Lunch 200"))
-        h.vm.onAction(QuickAddAction.Type(QuickType.Expense))
+        h.vm.onAction(QuickAddAction.Type(QuickType.Habit))
         h.vm.onAction(QuickAddAction.Save)
         runCurrent()
-        assertEquals("Expense arrives with Money — add it on the web for now.", h.vm.state.value.notice)
+        assertEquals("Habit check arrives with Habits — add it on the web for now.", h.vm.state.value.notice)
         assertFalse(h.vm.state.value.canSave)
         assertEquals(emptyList(), repo.calls)
     }

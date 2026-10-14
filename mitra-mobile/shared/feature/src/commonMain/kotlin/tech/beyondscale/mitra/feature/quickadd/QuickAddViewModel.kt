@@ -14,9 +14,15 @@ import kotlinx.coroutines.launch
 import tech.beyondscale.mitra.core.AppClock
 import tech.beyondscale.mitra.core.dayFlow
 import tech.beyondscale.mitra.core.fmtDay
+import tech.beyondscale.mitra.core.inrPaise
+import tech.beyondscale.mitra.core.localNow
 import tech.beyondscale.mitra.core.today
 import tech.beyondscale.mitra.domain.model.Project
 import tech.beyondscale.mitra.domain.model.TaskDraft
+import tech.beyondscale.mitra.domain.model.TxDraft
+import tech.beyondscale.mitra.domain.model.TxKind
+import tech.beyondscale.mitra.domain.money.ExpenseParser
+import tech.beyondscale.mitra.domain.repository.MoneyRepository
 import tech.beyondscale.mitra.domain.repository.TasksRepository
 import tech.beyondscale.mitra.domain.tasks.ParsedField
 import tech.beyondscale.mitra.domain.tasks.ParsedTask
@@ -28,7 +34,7 @@ import tech.beyondscale.mitra.feature.common.UiEvent
 /** [arrivesWith] is the module whose phase delivers the type; null means it works today. */
 enum class QuickType(val label: String, val arrivesWith: String?) {
     Task("Task", null),
-    Expense("Expense", "Money"),
+    Expense("Expense", null),
     Habit("Habit check", "Habits"),
     Note("Note", "Notes"),
     Mood("Mood", "Wellness"),
@@ -42,6 +48,11 @@ data class QuickAddUiState(
     val priLabel: String? = null,
     /** e.g. "💼 Work". */
     val projectLabel: String? = null,
+    /** "₹240" — the parsed amount (Expense). */
+    val amountLabel: String? = null,
+    /** "🍛 Food & dining" (Expense). */
+    val categoryLabel: String? = null,
+    val merchant: String = "",
     val notice: String? = null,
     val canSave: Boolean = true,
     val error: String? = null,
@@ -53,21 +64,25 @@ sealed interface QuickAddAction {
     data object ClearDue : QuickAddAction
     data object ClearPri : QuickAddAction
     data object ClearProject : QuickAddAction
+    data object ClearAmount : QuickAddAction
+    data object ClearCategory : QuickAddAction
     data object Save : QuickAddAction
     data object Reset : QuickAddAction
     data class DeleteCreated(val id: String) : QuickAddAction
+    data class UndoExpense(val id: String) : QuickAddAction
 }
 
 /** Shell-scoped so the "Added" Undo still works after the sheet has closed. */
-class QuickAddViewModel(private val tasks: TasksRepository, private val clock: AppClock) : ViewModel() {
+class QuickAddViewModel(private val tasks: TasksRepository, private val money: MoneyRepository, private val clock: AppClock) : ViewModel() {
     private data class Input(val text: String = "", val type: QuickType = QuickType.Task, val ignore: Set<ParsedField> = emptySet(), val error: String? = null)
 
     private val input = MutableStateFlow(Input())
     private val queue = EventQueue<QuickAddAction>()
     val events: Flow<UiEvent<QuickAddAction>> = queue.events
 
-    val state: StateFlow<QuickAddUiState> = combine(input, tasks.projects, clock.dayFlow()) { i, projects, today ->
+    val state: StateFlow<QuickAddUiState> = combine(input, tasks.projects, money.categories, clock.dayFlow()) { i, projects, categories, today ->
         val p = QuickAddParser.parse(i.text, today, projects, i.ignore)
+        val e = if (i.type == QuickType.Expense) ExpenseParser.parse(i.text, categories, i.ignore) else null
         QuickAddUiState(
             text = i.text,
             type = i.type,
@@ -75,8 +90,15 @@ class QuickAddViewModel(private val tasks: TasksRepository, private val clock: A
             dueLabel = p.due?.let { fmtDay(it, today) },
             priLabel = p.pri?.label,
             projectLabel = p.project?.let { "${it.emoji} ${it.name}" },
+            amountLabel = e?.amountPaise?.let(::inrPaise),
+            categoryLabel = e?.category?.let { "${it.emoji} ${it.name}" },
+            merchant = e?.merchant.orEmpty(),
             notice = i.type.arrivesWith?.let { "${i.type.label} arrives with $it — add it on the web for now." },
-            canSave = i.type == QuickType.Task,
+            canSave = when (i.type) {
+                QuickType.Task -> true
+                QuickType.Expense -> e?.amountPaise != null
+                else -> false
+            },
             error = i.error,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), QuickAddUiState())
@@ -88,9 +110,12 @@ class QuickAddViewModel(private val tasks: TasksRepository, private val clock: A
             QuickAddAction.ClearDue -> ignore(ParsedField.Due)
             QuickAddAction.ClearPri -> ignore(ParsedField.Pri)
             QuickAddAction.ClearProject -> ignore(ParsedField.Project)
+            QuickAddAction.ClearAmount -> ignore(ParsedField.Amount)
+            QuickAddAction.ClearCategory -> ignore(ParsedField.Category)
             QuickAddAction.Save -> save()
             QuickAddAction.Reset -> input.value = Input()
             is QuickAddAction.DeleteCreated -> viewModelScope.launch { tasks.delete(a.id) }
+            is QuickAddAction.UndoExpense -> viewModelScope.launch { money.deleteTransaction(a.id) }
         }
     }
 
@@ -98,11 +123,11 @@ class QuickAddViewModel(private val tasks: TasksRepository, private val clock: A
 
     private fun save() {
         val i = input.value
-        if (i.type != QuickType.Task || saving) return
+        if ((i.type != QuickType.Task && i.type != QuickType.Expense) || saving) return
         saving = true
         viewModelScope.launch {
             try {
-                create(i)
+                if (i.type == QuickType.Expense) createExpense(i) else create(i)
             } finally {
                 saving = false
             }
@@ -129,5 +154,25 @@ class QuickAddViewModel(private val tasks: TasksRepository, private val clock: A
             queue.send(UiEvent.Haptic(HapticKind.Confirm))
             queue.send(UiEvent.Close)
         }
+    }
+
+    private suspend fun createExpense(i: Input) {
+        val e = ExpenseParser.parse(i.text, money.categories.first(), i.ignore)
+        val amount = e.amountPaise ?: return
+        val account = money.accounts.first().firstOrNull { !it.archived }
+        if (account == null) {
+            input.update { it.copy(error = "Add an account first") }
+            queue.send(UiEvent.Haptic(HapticKind.Reject))
+            return
+        }
+        val now = clock.localNow()
+        val time = now.hour.toString().padStart(2, '0') + ":" + now.minute.toString().padStart(2, '0')
+        val tx = money.addTransaction(
+            TxDraft(TxKind.Expense, amount, e.category?.id, account.id, null, e.merchant, null, now.date.toString(), time),
+        )
+        input.value = Input()
+        queue.send(UiEvent.Snack("Expense saved · ${inrPaise(amount)}", QuickAddAction.UndoExpense(tx.id)))
+        queue.send(UiEvent.Haptic(HapticKind.Confirm))
+        queue.send(UiEvent.Close)
     }
 }

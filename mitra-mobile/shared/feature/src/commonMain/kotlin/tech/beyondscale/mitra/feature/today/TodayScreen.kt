@@ -20,6 +20,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -38,10 +39,29 @@ import tech.beyondscale.mitra.designsystem.theme.MitraDimens
 import tech.beyondscale.mitra.feature.common.EventEffect
 import tech.beyondscale.mitra.feature.tasks.TaskRow
 @Composable
-fun TodayRoute(onOpenTasks: () -> Unit = {}, onOpenTask: (String) -> Unit = {}, vm: TodayViewModel = koinViewModel()) {
+fun TodayRoute(
+    onOpenTasks: () -> Unit = {},
+    onOpenTask: (String) -> Unit = {},
+    onOpenMoney: () -> Unit = {},
+    onAddExpense: () -> Unit = {},
+    onOpenBudgets: () -> Unit = {},
+    vm: TodayViewModel = koinViewModel(),
+) {
     val state by vm.state.collectAsStateWithLifecycle()
     EventEffect(vm.events, vm::onAction)
-    TodayScreen(state, vm::onAction, onOpenTasks, onOpenTask)
+    TodayScreen(
+        state,
+        onAction = { a ->
+            when (a) {
+                TodayAction.AddExpense -> onAddExpense()
+                TodayAction.OpenBudgets -> onOpenBudgets()
+                else -> vm.onAction(a)
+            }
+        },
+        onOpenTasks = onOpenTasks,
+        onOpenTask = onOpenTask,
+        onOpenMoney = onOpenMoney,
+    )
 }
 
 @Composable
@@ -50,6 +70,7 @@ fun TodayScreen(
     onAction: (TodayAction) -> Unit = {},
     onOpenTasks: () -> Unit = {},
     onOpenTask: (String) -> Unit = {},
+    onOpenMoney: () -> Unit = {},
 ) {
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(vertical = 4.dp),
@@ -61,7 +82,11 @@ fun TodayScreen(
         }
         LazyRow(contentPadding = PaddingValues(horizontal = MitraDimens.pad), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             items(state.stats, key = { it.label }) { stat ->
-                StatCard(stat.label, stat.value, stat.sub, onClick = if (stat.target == StatTarget.Tasks) onOpenTasks else null)
+                StatCard(stat.label, stat.value, stat.sub, onClick = when (stat.target) {
+                    StatTarget.Tasks -> onOpenTasks
+                    StatTarget.Money -> onOpenMoney
+                    null -> null
+                })
             }
         }
         if (state.showPriorities) {
@@ -101,12 +126,53 @@ fun TodayScreen(
                 }
             }
         }
+        state.money?.let { m ->
+            Row(Modifier.fillMaxWidth().padding(horizontal = MitraDimens.pad), verticalAlignment = Alignment.CenterVertically) {
+                SectionHeader("Money", Modifier.weight(1f))
+                Text(
+                    "Overview",
+                    style = Mitra.type.sm.copy(fontWeight = FontWeight.SemiBold),
+                    color = Mitra.colors.accent,
+                    modifier = Modifier.heightIn(min = 48.dp).clickable(role = Role.Button, onClickLabel = "Open Money", onClick = onOpenMoney)
+                        .padding(horizontal = 8.dp).wrapContentHeight(Alignment.CenterVertically),
+                )
+            }
+            MoneyCard(m, onAction)
+        }
         MitraCard(Modifier.padding(horizontal = MitraDimens.pad)) {
             EmptyState(
                 icon = MitraIcons.Sun,
                 title = "Your day starts here",
-                body = "Habits, money and your check-in will appear here as each module arrives in the app.",
+                body = "Habits and your check-in will appear here as each module arrives in the app.",
             )
+        }
+    }
+}
+
+@Composable
+private fun MoneyCard(m: MoneyCardUi, onAction: (TodayAction) -> Unit) {
+    val c = Mitra.colors
+    MitraCard(Modifier.padding(horizontal = MitraDimens.pad)) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Column(Modifier.weight(1f).semantics(mergeDescendants = true) {}) {
+                Text("Safe to spend", style = Mitra.type.xs.copy(fontWeight = FontWeight.SemiBold), color = c.muted)
+                Row(verticalAlignment = Alignment.Bottom) {
+                    Text(m.safe, style = Mitra.type.numLg, color = c.text)
+                    if (m.perDay) Text(" / day", style = Mitra.type.sm, color = c.muted)
+                }
+                Text(m.daysLeft, style = Mitra.type.xs, color = c.faint)
+            }
+            Column(Modifier.weight(1f).semantics(mergeDescendants = true) {}, horizontalAlignment = Alignment.End) {
+                Text(m.remainingTitle, style = Mitra.type.xs.copy(fontWeight = FontWeight.SemiBold), color = c.muted)
+                Text(m.remaining, style = Mitra.type.numLg, color = if (m.remainingDanger) c.danger else c.text)
+                if (m.budgetSub.isNotEmpty()) Text(m.budgetSub, style = Mitra.type.xs, color = c.faint)
+            }
+        }
+        m.next?.let { Text(it, style = Mitra.type.sm, color = c.text) }
+        m.alert?.let { Text(it, style = Mitra.type.xs, color = if (m.alertDanger) c.danger else c.warning) }
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            MitraButton("Add expense", { onAction(TodayAction.AddExpense) }, kind = ButtonKind.Soft, icon = MitraIcons.Plus)
+            MitraButton("Budgets", { onAction(TodayAction.OpenBudgets) }, kind = ButtonKind.Ghost)
         }
     }
 }

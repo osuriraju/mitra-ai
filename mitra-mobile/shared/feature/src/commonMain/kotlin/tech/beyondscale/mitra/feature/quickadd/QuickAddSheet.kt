@@ -26,6 +26,7 @@ import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import tech.beyondscale.mitra.designsystem.components.ChipTone
 import tech.beyondscale.mitra.designsystem.components.MitraButton
@@ -80,14 +81,26 @@ private fun QuickAddContent(state: QuickAddUiState, onAction: (QuickAddAction) -
             value = state.text,
             onValueChange = { onAction(QuickAddAction.Text(it)) },
             label = if (state.type == QuickType.Task) "Task" else state.type.label,
-            placeholder = "Call John tomorrow p1 #work",
+            placeholder = if (state.type == QuickType.Expense) "₹240 food lunch" else "Call John tomorrow p1 #work",
             error = state.error,
+            keyboardType = KeyboardType.Text,
             imeAction = ImeAction.Done,
             onImeAction = { onAction(QuickAddAction.Save) },
             fieldModifier = Modifier.focusRequester(focus),
         )
         if (state.notice != null) {
             Text(state.notice, style = Mitra.type.body, color = c.muted)
+        } else if (state.type == QuickType.Expense) {
+            if (state.amountLabel != null || state.categoryLabel != null) {
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                    state.amountLabel?.let {
+                        MitraChip(it, icon = MitraIcons.Wallet, selected = true, onRemove = { onAction(QuickAddAction.ClearAmount) })
+                    }
+                    state.categoryLabel?.let {
+                        MitraChip(it, selected = true, onRemove = { onAction(QuickAddAction.ClearCategory) })
+                    }
+                }
+            }
         } else if (state.dueLabel != null || state.priLabel != null || state.projectLabel != null) {
             FlowRow(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
                 state.dueLabel?.let {
@@ -102,7 +115,7 @@ private fun QuickAddContent(state: QuickAddUiState, onAction: (QuickAddAction) -
             }
         }
         MitraButton(
-            "Add",
+            if (state.type == QuickType.Expense) "Save expense" else "Add",
             onClick = { onAction(QuickAddAction.Save) },
             enabled = state.canSave,
             modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
