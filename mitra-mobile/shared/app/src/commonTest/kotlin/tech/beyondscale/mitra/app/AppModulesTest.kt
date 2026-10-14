@@ -23,6 +23,7 @@ import tech.beyondscale.mitra.feature.auth.LoginViewModel
 import tech.beyondscale.mitra.feature.auth.SignupViewModel
 import tech.beyondscale.mitra.feature.settings.SettingsViewModel
 import tech.beyondscale.mitra.feature.tasks.FocusViewModel
+import tech.beyondscale.mitra.feature.tasks.ProjectDetailViewModel
 import tech.beyondscale.mitra.feature.today.TodayViewModel
 import tech.beyondscale.mitra.testing.ViewModelTest
 import kotlin.test.AfterTest
@@ -62,5 +63,6 @@ class AppModulesTest : ViewModelTest() {
         koin.get<TodayViewModel>()
         koin.get<SettingsViewModel>()
         koin.get<FocusViewModel> { parametersOf("") }
+        koin.get<ProjectDetailViewModel> { parametersOf("p1") }
     }
 }

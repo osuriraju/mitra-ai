@@ -13,6 +13,7 @@ import tech.beyondscale.mitra.feature.auth.SignupViewModel
 import tech.beyondscale.mitra.feature.quickadd.QuickAddViewModel
 import tech.beyondscale.mitra.feature.settings.SettingsViewModel
 import tech.beyondscale.mitra.feature.tasks.FocusViewModel
+import tech.beyondscale.mitra.feature.tasks.ProjectDetailViewModel
 import tech.beyondscale.mitra.feature.tasks.TaskDetailViewModel
 import tech.beyondscale.mitra.feature.tasks.TaskEditorViewModel
 import tech.beyondscale.mitra.feature.tasks.TasksViewModel
@@ -32,4 +33,5 @@ val featureModule = module {
     viewModelOf(::QuickAddViewModel)
     viewModel { (id: String) -> TaskDetailViewModel(id, get(), get(), get()) }
     viewModel { (taskId: String) -> FocusViewModel(taskId, get(), get(), get()) }
+    viewModel { (id: String) -> ProjectDetailViewModel(id, get(), get()) }
 }

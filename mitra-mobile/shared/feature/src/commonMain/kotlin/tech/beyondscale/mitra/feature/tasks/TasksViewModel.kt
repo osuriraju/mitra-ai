@@ -87,6 +87,7 @@ sealed interface TasksAction {
     data class SetFilters(val filters: TaskFilters) : TasksAction
     data object ToggleShowDone : TasksAction
     data object Refresh : TasksAction
+    data class CreateProject(val name: String, val emoji: String) : TasksAction
 }
 
 class TasksViewModel(private val tasks: TasksRepository, private val clock: AppClock) : ViewModel() {
@@ -142,6 +143,13 @@ class TasksViewModel(private val tasks: TasksRepository, private val clock: AppC
             }
             is TasksAction.DeleteCreated -> launch { tasks.delete(a.id) }
             TasksAction.Refresh -> refresh()
+            is TasksAction.CreateProject -> {
+                if (validateProjectName(a.name) != null) return
+                launch {
+                    val p = tasks.createProject(a.name.trim(), a.emoji)
+                    queue.send(UiEvent.Snack("Project created · ${p.name}"))
+                }
+            }
         }
     }
 
@@ -178,7 +186,9 @@ class TasksViewModel(private val tasks: TasksRepository, private val clock: AppC
         viewModelScope.launch {
             try {
                 val result = tasks.refresh()
-                if (result is Outcome.Err) {
+                // A superseded refresh is reconciled by the module refresher once the queue drains — not an error.
+                val superseded = result is Outcome.Err && (result.error as? AppError.Server)?.code == TasksRepository.REFRESH_SUPERSEDED
+                if (result is Outcome.Err && !superseded) {
                     val text = if (result.error is AppError.Offline) "You're offline — showing tasks saved on this phone" else result.error.message
                     queue.send(UiEvent.Snack(text))
                 }

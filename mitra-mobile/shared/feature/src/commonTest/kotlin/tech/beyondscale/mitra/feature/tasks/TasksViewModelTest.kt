@@ -219,4 +219,30 @@ class TasksViewModelTest : ViewModelTest() {
         h.vm.onAction(TasksAction.ToggleShowDone)
         assertFalse(h.vm.state.value.showDone)
     }
+
+    @Test fun refreshSupersededIsNotAnError() = runTest {
+        val superseded = AppError.Server(409, tech.beyondscale.mitra.domain.repository.TasksRepository.REFRESH_SUPERSEDED, "Refresh superseded")
+        val repo = FakeTasksRepository(fixtures()).apply { refreshResult = Outcome.Err(superseded) }
+        val h = start(repo)
+        h.vm.onAction(TasksAction.Refresh)
+        runCurrent()
+        assertEquals(listOf("refresh"), repo.calls)
+        assertEquals(emptyList(), h.events)
+        assertFalse(h.vm.state.value.refreshing)
+    }
+
+    @Test fun createProjectAnnounces() = runTest {
+        val repo = FakeTasksRepository(fixtures(), listOf(project))
+        val h = start(repo)
+        h.vm.onAction(TasksAction.CreateProject("  Work ", "💼"))
+        runCurrent()
+        assertEquals(listOf("createProject:Work"), repo.calls)
+        assertEquals(listOf<UiEvent<TasksAction>>(UiEvent.Snack("Project created · Work")), h.events)
+        assertEquals(listOf("p1", "proj1"), h.vm.state.value.projects.map { it.id })
+        assertEquals("💼", h.vm.state.value.projects.last().emoji)
+
+        h.vm.onAction(TasksAction.CreateProject("   ", "🚀"))
+        runCurrent()
+        assertEquals(listOf("createProject:Work"), repo.calls)
+    }
 }

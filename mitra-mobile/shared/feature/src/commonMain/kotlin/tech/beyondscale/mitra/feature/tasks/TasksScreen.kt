@@ -86,12 +86,22 @@ fun TasksRoute(
     onOpenProject: (String) -> Unit,
     onAddTask: (TaskDraft) -> Unit,
     onFocus: () -> Unit,
-    onNewProject: () -> Unit = {},
+    /** Null (the default) opens the "New project" sheet hosted here. */
+    onNewProject: (() -> Unit)? = null,
     vm: TasksViewModel = koinViewModel(),
 ) {
     val state by vm.state.collectAsStateWithLifecycle()
     EventEffect(vm.events, vm::onAction)
-    TasksScreen(state, vm::onAction, onOpenTask, onOpenProject, onAddTask, onFocus, onNewProject)
+    var newProject by rememberSaveable { mutableStateOf(false) }
+    TasksScreen(state, vm::onAction, onOpenTask, onOpenProject, onAddTask, onFocus, onNewProject ?: { newProject = true })
+    if (newProject) {
+        ProjectFormSheet(
+            title = "New project",
+            confirmLabel = "Create project",
+            onSave = { name, emoji -> vm.onAction(TasksAction.CreateProject(name, emoji)) },
+            onDismiss = { newProject = false },
+        )
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
