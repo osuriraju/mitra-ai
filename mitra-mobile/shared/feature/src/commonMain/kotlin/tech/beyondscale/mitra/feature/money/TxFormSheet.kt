@@ -64,7 +64,6 @@ import tech.beyondscale.mitra.designsystem.icons.MitraIcons
 import tech.beyondscale.mitra.designsystem.theme.Mitra
 import tech.beyondscale.mitra.designsystem.theme.MitraDimens
 import tech.beyondscale.mitra.domain.model.TxKind
-import tech.beyondscale.mitra.feature.common.EventEffect
 import tech.beyondscale.mitra.feature.common.MitraDatePickerDialog
 import tech.beyondscale.mitra.feature.common.MitraTimePickerDialog
 
@@ -72,7 +71,8 @@ private val KINDS = listOf(TxKind.Expense, TxKind.Income, TxKind.Transfer)
 
 /**
  * Add/edit transaction sheet (web `TxForm`), host-owned like `TaskFormSheet`: the shell calls `vm.start(editId)`, shows
- * this, and hides it on [onDismiss]. The amount is typed on [AmountKeypad] only — the system keyboard never opens for it.
+ * this, and hides it on [onDismiss]. The host also collects [TxEditorViewModel.events] (snackbars and Close), so a save
+ * finishing after the sheet was swiped away still shows its Undo snackbar. The amount is typed on [AmountKeypad] only — the system keyboard never opens for it.
  * [onManageCategories] shows the "Manage" link next to Category.
  */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -84,7 +84,6 @@ fun TxFormSheet(vm: TxEditorViewModel, onDismiss: () -> Unit, onManageCategories
     val close: () -> Unit = {
         scope.launch { sheetState.hide() }.invokeOnCompletion { onDismiss() }
     }
-    EventEffect(vm.events, vm::onAction, onClose = close)
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState, containerColor = Mitra.colors.bg) {
         if (state.ready) {
             TxForm(

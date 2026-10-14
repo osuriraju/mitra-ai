@@ -190,6 +190,14 @@ internal fun MainShell(user: User, sync: SyncStatus, messages: Flow<String>) {
         nav.popBackStack<MoneyDest>(inclusive = false)
         return true
     }
+    fun openCategories() {
+        when (categoriesNav(modules.money, inMoneyStack = current == MONEY)) {
+            // Pop back to a Categories already in the stack rather than stacking a duplicate.
+            CategoriesNav.InMoneyStack -> if (!nav.popBackStack<CategoriesDest>(inclusive = false)) nav.navigate(CategoriesDest)
+            CategoriesNav.ViaMoneyRoot -> if (goMoneyRoot()) nav.navigate(CategoriesDest)
+            CategoriesNav.Unavailable -> Unit
+        }
+    }
     // Never pop the last entry (a double tap on Back would otherwise leave an empty NavHost).
     fun back() { if (nav.previousBackStackEntry != null) nav.popBackStack() }
     fun select(d: Dest) {
@@ -200,6 +208,7 @@ internal fun MainShell(user: User, sync: SyncStatus, messages: Flow<String>) {
 
     // A module switched off while its screen is open would strand the user: fall back to Today.
     LaunchedEffect(modules, current, entry, chrome) {
+        if (!modules.money) txFormOpen = false
         if ((!isDetail(chrome) || moneyDetail) && entry != null && current == null && entry?.destination?.route != null) go(TodayDest)
     }
 
@@ -216,7 +225,10 @@ internal fun MainShell(user: User, sync: SyncStatus, messages: Flow<String>) {
                 openTask(target.id)
             }
             LaunchTarget.OpenTasks -> go(TasksDest)
-            LaunchTarget.QuickAddTask -> quickAddOpen = true
+            LaunchTarget.QuickAddTask -> {
+                quickAddOpen = true
+                quickAdd.onAction(QuickAddAction.Type(QuickType.Task))
+            }
             LaunchTarget.OpenMoney -> goMoneyRoot()
             LaunchTarget.OpenBudgets -> if (goMoneyRoot()) nav.navigate(BudgetsDest)
             LaunchTarget.QuickAddExpense -> if (modules.money) {
@@ -232,6 +244,8 @@ internal fun MainShell(user: User, sync: SyncStatus, messages: Flow<String>) {
     CompositionLocalProvider(LocalSnackbar provides snackbar) {
         EventEffect(quickAdd.events, quickAdd::onAction, onClose = { quickAddOpen = false })
         EventEffect(editor.events, editor::onAction)
+        // Collected here, not in the sheet: a save finishing after the sheet was swiped away still snacks (with Undo).
+        EventEffect(txEditor.events, txEditor::onAction, onClose = { txFormOpen = false })
         val addTask: (TaskDraft) -> Unit = { editor.onAction(TaskEditorAction.Open(it)) }
 
         val shellActions: @Composable RowScope.() -> Unit = {
@@ -334,9 +348,8 @@ internal fun MainShell(user: User, sync: SyncStatus, messages: Flow<String>) {
         val editorState by editor.state.collectAsStateWithLifecycle()
         TaskFormSheet(editorState, editor::onAction)
 
-        // Its snackbars (Undo included) go through the shell's SnackbarController, so Undo outlives the sheet.
         if (txFormOpen) {
-            TxFormSheet(txEditor, onDismiss = { txFormOpen = false }, onManageCategories = { nav.navigate(CategoriesDest) })
+            TxFormSheet(txEditor, onDismiss = { txFormOpen = false }, onManageCategories = ::openCategories)
         }
 
         if (moreOpen) {

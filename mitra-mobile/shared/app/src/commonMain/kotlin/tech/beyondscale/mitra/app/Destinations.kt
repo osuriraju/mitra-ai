@@ -55,5 +55,18 @@ internal fun chromeFor(route: KClass<*>?): Chrome = when (route) {
     else -> Chrome.Tab
 }
 
+/** How "Manage categories" in the transaction sheet reaches [CategoriesDest]. */
+internal enum class CategoriesNav { InMoneyStack, ViaMoneyRoot, Unavailable }
+
+/**
+ * Inside the Money stack Categories is pushed (or popped back to if already there); from elsewhere (Today, Tasks) it
+ * goes through Money's root, so it sits in the stack the highlighted Money tab implies. Nothing with Money off.
+ */
+internal fun categoriesNav(moneyOn: Boolean, inMoneyStack: Boolean): CategoriesNav = when {
+    !moneyOn -> CategoriesNav.Unavailable
+    inMoneyStack -> CategoriesNav.InMoneyStack
+    else -> CategoriesNav.ViaMoneyRoot
+}
+
 /** Shell-scoped ViewModels are keyed per account, so a signed-in user never inherits the previous account's draft. */
 internal fun shellVmKey(name: String, userId: String): String = "$name:$userId"

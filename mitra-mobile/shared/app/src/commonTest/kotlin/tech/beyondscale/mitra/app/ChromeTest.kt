@@ -34,6 +34,14 @@ class ChromeTest {
         assertEquals(Chrome.Detail, chromeForDestination { it == BudgetsDest::class })
     }
 
+    /** Manage categories from the transaction sheet: stay in the Money stack, else enter it via Money's root. */
+    @Test fun manageCategoriesRoutesThroughTheMoneyStack() {
+        assertEquals(CategoriesNav.InMoneyStack, categoriesNav(moneyOn = true, inMoneyStack = true))
+        assertEquals(CategoriesNav.ViaMoneyRoot, categoriesNav(moneyOn = true, inMoneyStack = false))
+        assertEquals(CategoriesNav.Unavailable, categoriesNav(moneyOn = false, inMoneyStack = false))
+        assertEquals(CategoriesNav.Unavailable, categoriesNav(moneyOn = false, inMoneyStack = true))
+    }
+
     @Test fun shellViewModelsAreKeyedPerAccount() {
         assertEquals("quickAdd:u1", shellVmKey("quickAdd", "u1"))
         kotlin.test.assertNotEquals(shellVmKey("taskEditor", "a"), shellVmKey("taskEditor", "b"))
