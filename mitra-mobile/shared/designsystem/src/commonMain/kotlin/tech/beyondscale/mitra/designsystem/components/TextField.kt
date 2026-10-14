@@ -38,6 +38,10 @@ fun MitraTextField(
     isPassword: Boolean = false,
     imeAction: ImeAction = ImeAction.Next,
     onImeAction: () -> Unit = {},
+    fieldModifier: Modifier = Modifier,
+    singleLine: Boolean = true,
+    minLines: Int = 1,
+    placeholder: String? = null,
 ) {
     val c = Mitra.colors
     var revealed by rememberSaveable { mutableStateOf(false) }
@@ -46,8 +50,10 @@ fun MitraTextField(
         OutlinedTextField(
             value = value,
             onValueChange = onValueChange,
-            modifier = Modifier.fillMaxWidth(),
-            singleLine = true,
+            modifier = Modifier.fillMaxWidth().then(fieldModifier),
+            singleLine = singleLine,
+            minLines = minLines,
+            placeholder = placeholder?.let { { Text(it, style = Mitra.type.body, color = c.faint) } },
             isError = error != null,
             textStyle = Mitra.type.body.copy(color = c.text),
             visualTransformation = if (isPassword && !revealed) PasswordVisualTransformation() else VisualTransformation.None,
