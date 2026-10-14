@@ -32,19 +32,21 @@ export class TransactionsService {
   }
 
   async create(userId: string, input: CreateTransaction) {
-    const t = await this.prisma.$transaction(async (db) => {
-      await this.validateRefs(db, userId, input);
-      const row = await db.transaction.create({ data: {
-        id: input.id, userId, kind: input.kind, amountMinor: toMinor(input.amount), categoryId: input.categoryId ?? null, accountId: input.accountId, toAccountId: input.kind === 'transfer' ? input.toAccountId : null,
-        merchant: input.merchant, note: input.note ?? null, date: fromISODate(input.date), time: input.time, source: input.source, recurringId: input.recurringId ?? null, tags: input.tags,
-      } });
-      await this.apply(db, effects(row));
-      const cat = row.categoryId ? await db.category.findUnique({ where: { id: row.categoryId } }) : null;
-      const label = row.kind === 'income' ? 'Income' : row.kind === 'transfer' ? 'Transfer' : '';
-      await this.activity.log(userId, { module: 'money', entityId: row.id, icon: 'wallet', tone: row.source === 'ai' ? 'accent' : '', text: `${label ? label + ' ' : ''}${fmtInr(toMajor(row.amountMinor)!)} ${row.merchant || cat?.name || ''}${row.source === 'ai' ? ' · captured by AI' : row.source === 'recurring' ? ' · recurring' : ''}`.trim() }, db);
-      return row;
-    });
-    return transactionOut(t);
+    return transactionOut(await this.prisma.$transaction((db) => this.createIn(db, userId, input)));
+  }
+
+  /** Creates the row, moves the balances and logs the activity inside the caller's database transaction. */
+  async createIn(db: Prisma.TransactionClient, userId: string, input: CreateTransaction): Promise<Transaction> {
+    await this.validateRefs(db, userId, input);
+    const row = await db.transaction.create({ data: {
+      id: input.id, userId, kind: input.kind, amountMinor: toMinor(input.amount), categoryId: input.categoryId ?? null, accountId: input.accountId, toAccountId: input.kind === 'transfer' ? input.toAccountId : null,
+      merchant: input.merchant, note: input.note ?? null, date: fromISODate(input.date), time: input.time, source: input.source, recurringId: input.recurringId ?? null, tags: input.tags,
+    } });
+    await this.apply(db, effects(row));
+    const cat = row.categoryId ? await db.category.findUnique({ where: { id: row.categoryId } }) : null;
+    const label = row.kind === 'income' ? 'Income' : row.kind === 'transfer' ? 'Transfer' : '';
+    await this.activity.log(userId, { module: 'money', entityId: row.id, icon: 'wallet', tone: row.source === 'ai' ? 'accent' : '', text: `${label ? label + ' ' : ''}${fmtInr(toMajor(row.amountMinor)!)} ${row.merchant || cat?.name || ''}${row.source === 'ai' ? ' · captured by AI' : row.source === 'recurring' ? ' · recurring' : ''}`.trim() }, db);
+    return row;
   }
 
   async update(userId: string, id: string, patch: UpdateTransaction) {
