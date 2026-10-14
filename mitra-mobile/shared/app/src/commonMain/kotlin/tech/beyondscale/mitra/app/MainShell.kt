@@ -76,6 +76,20 @@ import tech.beyondscale.mitra.domain.model.TaskDraft
 import tech.beyondscale.mitra.domain.model.User
 import tech.beyondscale.mitra.feature.common.ComingSoonScreen
 import tech.beyondscale.mitra.feature.common.EventEffect
+import tech.beyondscale.mitra.feature.goals.GoalDetailRoute
+import tech.beyondscale.mitra.feature.goals.GoalEditorAction
+import tech.beyondscale.mitra.feature.goals.GoalEditorEvent
+import tech.beyondscale.mitra.feature.goals.GoalEditorViewModel
+import tech.beyondscale.mitra.feature.goals.GoalFormSheet
+import tech.beyondscale.mitra.feature.goals.GoalReviewRoute
+import tech.beyondscale.mitra.feature.goals.GoalsRoute
+import tech.beyondscale.mitra.feature.habits.HabitDetailRoute
+import tech.beyondscale.mitra.feature.habits.HabitEditorAction
+import tech.beyondscale.mitra.feature.habits.HabitEditorEvent
+import tech.beyondscale.mitra.feature.habits.HabitEditorViewModel
+import tech.beyondscale.mitra.feature.habits.HabitFormSheet
+import tech.beyondscale.mitra.feature.habits.HabitHistoryRoute
+import tech.beyondscale.mitra.feature.habits.HabitsRoute
 import tech.beyondscale.mitra.feature.money.BudgetsRoute
 import tech.beyondscale.mitra.feature.money.CategoriesRoute
 import tech.beyondscale.mitra.feature.money.MoneyLink
@@ -86,6 +100,7 @@ import tech.beyondscale.mitra.feature.money.TransactionsRoute
 import tech.beyondscale.mitra.feature.money.TxEditorViewModel
 import tech.beyondscale.mitra.feature.money.TxFormSheet
 import tech.beyondscale.mitra.feature.quickadd.QuickAddAction
+import tech.beyondscale.mitra.feature.quickadd.QuickAddEvent
 import tech.beyondscale.mitra.feature.quickadd.QuickAddSheet
 import tech.beyondscale.mitra.feature.quickadd.QuickAddViewModel
 import tech.beyondscale.mitra.feature.quickadd.QuickType
@@ -139,6 +154,8 @@ internal fun MainShell(user: User, sync: SyncStatus, messages: Flow<String>) {
     val quickAdd: QuickAddViewModel = koinViewModel(key = shellVmKey("quickAdd", user.id))
     val editor: TaskEditorViewModel = koinViewModel(key = shellVmKey("taskEditor", user.id))
     val txEditor: TxEditorViewModel = koinViewModel(key = shellVmKey("tx-editor", user.id))
+    val habitEditor: HabitEditorViewModel = koinViewModel(key = shellVmKey("habit-editor", user.id))
+    val goalEditor: GoalEditorViewModel = koinViewModel(key = shellVmKey("goal-editor", user.id))
     val launches: LaunchRequests = koinInject()
     var moreOpen by rememberSaveable { mutableStateOf(false) }
     var quickAddOpen by rememberSaveable { mutableStateOf(false) }
@@ -155,9 +172,14 @@ internal fun MainShell(user: User, sync: SyncStatus, messages: Flow<String>) {
     val destination = entry?.destination
     val chrome = chromeForDestination { k -> destination?.hasRoute(k) == true }
     val moneyDetail = MONEY_DETAIL_ROUTES.any { destination?.hasRoute(it) == true }
-    // Money's sub-screens live under Money (none when the module is off); task and project detail and Focus under Tasks.
+    val habitDetail = HABIT_DETAIL_ROUTES.any { destination?.hasRoute(it) == true }
+    val goalDetail = GOAL_DETAIL_ROUTES.any { destination?.hasRoute(it) == true }
+    // Money's sub-screens live under Money (none when the module is off); habit and goal screens under Habits / Goals;
+    // task and project detail and Focus under Tasks.
     val current = when {
         moneyDetail -> MONEY.takeIf { it in tabs }
+        habitDetail -> HABITS
+        goalDetail -> GOALS
         isDetail(chrome) -> TASKS
         else -> (tabs + more).firstOrNull { d -> destination?.hierarchy?.any { it.hasRoute(d.route::class) } == true }
     }
@@ -168,6 +190,8 @@ internal fun MainShell(user: User, sync: SyncStatus, messages: Flow<String>) {
         restoreState = true
     }
     fun openTask(id: String) = nav.navigate(TaskDetailDest(id))
+    fun openHabit(id: String) = nav.navigate(HabitDetailDest(id))
+    fun openGoal(id: String) = nav.navigate(GoalDetailDest(id))
     fun openTxForm(editId: String?) {
         txEditor.start(editId)
         txFormOpen = true
@@ -246,7 +270,20 @@ internal fun MainShell(user: User, sync: SyncStatus, messages: Flow<String>) {
         EventEffect(editor.events, editor::onAction)
         // Collected here, not in the sheet: a save finishing after the sheet was swiped away still snacks (with Undo).
         EventEffect(txEditor.events, txEditor::onAction, onClose = { txFormOpen = false })
+        EventEffect(habitEditor.events, habitEditor::onAction)
+        EventEffect(goalEditor.events, goalEditor::onAction)
+        // Collected once, here: a create opens the Habits list / the new goal's detail.
+        LaunchedEffect(habitEditor) {
+            habitEditor.navigation.collect { e -> when (e) { is HabitEditorEvent.Created -> go(HabitsDest) } }
+        }
+        LaunchedEffect(goalEditor) {
+            goalEditor.navigation.collect { e -> when (e) { is GoalEditorEvent.Created -> openGoal(e.id) } }
+        }
+        LaunchedEffect(quickAdd) {
+            quickAdd.navigation.collect { e -> when (e) { is QuickAddEvent.NewHabit -> habitEditor.onAction(HabitEditorAction.Open(e.name)) } }
+        }
         val addTask: (TaskDraft) -> Unit = { editor.onAction(TaskEditorAction.Open(it)) }
+        val addHabit: () -> Unit = { habitEditor.onAction(HabitEditorAction.Open()) }
 
         val shellActions: @Composable RowScope.() -> Unit = {
             syncLabel(sync)?.let { (text, tone) -> SyncPill(text, tone) }
@@ -284,6 +321,11 @@ internal fun MainShell(user: User, sync: SyncStatus, messages: Flow<String>) {
                         onAddExpense = { openTxForm(null) },
                         // Via Money's root, so Budgets sits in the Money stack its highlighted tab implies.
                         onOpenBudgets = { if (goMoneyRoot()) nav.navigate(BudgetsDest) },
+                        onOpenHabits = { go(HabitsDest) },
+                        onOpenHabit = ::openHabit,
+                        onAddHabit = addHabit,
+                        onOpenGoals = { go(GoalsDest) },
+                        onOpenGoal = ::openGoal,
                     )
                 }
                 composable<TasksDest> {
@@ -305,10 +347,13 @@ internal fun MainShell(user: User, sync: SyncStatus, messages: Flow<String>) {
                         onOpenTask = ::openTask,
                         onFocus = { nav.navigate(FocusDest(id)) },
                         onDeleted = { editor.onAction(TaskEditorAction.Deleted(it)) },
+                        onOpenGoal = ::openGoal,
                     )
                 }
                 composable<ProjectDetailDest> { e ->
-                    ProjectDetailRoute(e.toRoute<ProjectDetailDest>().id, onBack = ::back, onOpenTask = ::openTask, onAddTask = addTask)
+                    ProjectDetailRoute(
+                        e.toRoute<ProjectDetailDest>().id, onBack = ::back, onOpenTask = ::openTask, onAddTask = addTask, onOpenGoal = ::openGoal,
+                    )
                 }
                 composable<FocusDest> { e ->
                     FocusRoute(e.toRoute<FocusDest>().taskId, onClose = ::back, onOpenTask = ::openTask)
@@ -328,8 +373,45 @@ internal fun MainShell(user: User, sync: SyncStatus, messages: Flow<String>) {
                 composable<CategoriesDest> { CategoriesRoute(onBack = ::back, onOpenTransactions = { nav.navigate(TransactionsDest(it)) }) }
                 composable<RecurringDest> { RecurringRoute(onBack = ::back) }
                 composable<SubscriptionsDest> { SubscriptionsRoute(onBack = ::back) }
-                composable<HabitsDest> { ComingSoonScreen("Habits", MitraIcons.Repeat) }
-                composable<GoalsDest> { ComingSoonScreen("Goals", MitraIcons.Target) }
+                composable<HabitsDest> {
+                    HabitsRoute(onOpenHabit = ::openHabit, onNewHabit = addHabit, topBarActions = shellActions)
+                }
+                composable<HabitDetailDest> { e ->
+                    HabitDetailRoute(
+                        id = e.toRoute<HabitDetailDest>().id,
+                        onBack = ::back,
+                        onEdit = { habitEditor.onAction(HabitEditorAction.Edit(it)) },
+                        onHistory = { nav.navigate(HabitHistoryDest(it)) },
+                        onOpenGoal = ::openGoal,
+                    )
+                }
+                composable<HabitHistoryDest> { e -> HabitHistoryRoute(e.toRoute<HabitHistoryDest>().id, onBack = ::back) }
+                composable<GoalsDest> {
+                    GoalsRoute(
+                        onOpenGoal = ::openGoal,
+                        onNewGoal = { goalEditor.onAction(GoalEditorAction.Open) },
+                        onStartReview = { nav.navigate(GoalReviewDest) },
+                        topBarActions = shellActions,
+                    )
+                }
+                composable<GoalDetailDest> { e ->
+                    GoalDetailRoute(
+                        id = e.toRoute<GoalDetailDest>().id,
+                        onBack = ::back,
+                        onEdit = { goalEditor.onAction(GoalEditorAction.Edit(it)) },
+                        onOpenTask = ::openTask,
+                        onOpenProject = { nav.navigate(ProjectDetailDest(it)) },
+                        onOpenHabit = ::openHabit,
+                        onAddTask = { addTask(TaskDraft("", goalId = it)) },
+                    )
+                }
+                composable<GoalReviewDest> {
+                    GoalReviewRoute(
+                        // Back to the Goals list beneath the review (or Goals' root if the review was reached another way).
+                        onDone = { if (!nav.popBackStack<GoalsDest>(inclusive = false)) go(GoalsDest) },
+                        onBack = ::back,
+                    )
+                }
                 composable<WellnessDest> { ComingSoonScreen("Wellness", MitraIcons.Heart) }
                 composable<NotesDest> { ComingSoonScreen("Notes", MitraIcons.Note) }
                 composable<AiDest> { ComingSoonScreen("AI", MitraIcons.Sparkles) }
@@ -347,6 +429,9 @@ internal fun MainShell(user: User, sync: SyncStatus, messages: Flow<String>) {
 
         val editorState by editor.state.collectAsStateWithLifecycle()
         TaskFormSheet(editorState, editor::onAction)
+
+        HabitFormSheet(habitEditor, onDismiss = {})
+        GoalFormSheet(goalEditor)
 
         if (txFormOpen) {
             TxFormSheet(txEditor, onDismiss = { txFormOpen = false }, onManageCategories = ::openCategories)

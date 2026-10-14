@@ -34,6 +34,15 @@ class ChromeTest {
         assertEquals(Chrome.Detail, chromeForDestination { it == BudgetsDest::class })
     }
 
+    @Test fun habitsGoalsRoutes() {
+        assertEquals(Chrome.TabOwnBar, chromeFor(HabitsDest::class))
+        assertEquals(Chrome.TabOwnBar, chromeFor(GoalsDest::class))
+        listOf(HabitDetailDest::class, HabitHistoryDest::class, GoalDetailDest::class, GoalReviewDest::class)
+            .forEach { assertEquals(Chrome.Detail, chromeFor(it), "$it") }
+        assertEquals(Chrome.TabOwnBar, chromeForDestination { it == HabitsDest::class })
+        assertEquals(Chrome.Detail, chromeForDestination { it == GoalReviewDest::class })
+    }
+
     /** Manage categories from the transaction sheet: stay in the Money stack, else enter it via Money's root. */
     @Test fun manageCategoriesRoutesThroughTheMoneyStack() {
         assertEquals(CategoriesNav.InMoneyStack, categoriesNav(moneyOn = true, inMoneyStack = true))

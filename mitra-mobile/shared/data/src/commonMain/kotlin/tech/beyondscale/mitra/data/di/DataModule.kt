@@ -19,6 +19,8 @@ import tech.beyondscale.mitra.data.local.UserCache
 import tech.beyondscale.mitra.data.remote.ApiClient
 import tech.beyondscale.mitra.data.remote.PersistentCookiesStorage
 import tech.beyondscale.mitra.data.repository.AuthRepositoryImpl
+import tech.beyondscale.mitra.data.repository.GoalsRepositoryImpl
+import tech.beyondscale.mitra.data.repository.HabitsRepositoryImpl
 import tech.beyondscale.mitra.data.repository.MoneyRepositoryImpl
 import tech.beyondscale.mitra.data.repository.PreferencesRepositoryImpl
 import tech.beyondscale.mitra.data.repository.SettingsRepositoryImpl
@@ -28,6 +30,8 @@ import tech.beyondscale.mitra.data.sync.OutboxWriter
 import tech.beyondscale.mitra.data.sync.PeriodicSyncController
 import tech.beyondscale.mitra.data.sync.SyncEngine
 import tech.beyondscale.mitra.domain.repository.AuthRepository
+import tech.beyondscale.mitra.domain.repository.GoalsRepository
+import tech.beyondscale.mitra.domain.repository.HabitsRepository
 import tech.beyondscale.mitra.domain.repository.ModuleRefresher
 import tech.beyondscale.mitra.domain.repository.MoneyRepository
 import tech.beyondscale.mitra.domain.repository.PreferencesRepository
@@ -60,12 +64,17 @@ fun dataModule(baseUrl: String): Module = module {
     single<TasksRepository>(createdAtStart = true) { TasksRepositoryImpl(get(), get(), get(), get(), get(), get(), get<AppScope>().scope) }
     // Eager: registers the money sync handlers, which must exist before the first drain.
     single<MoneyRepository>(createdAtStart = true) { MoneyRepositoryImpl(get(), get(), get(), get(), get(), get(), get<AppScope>().scope) }
+    // Eager: register the habit / goal sync handlers, which must exist before the first drain.
+    single<HabitsRepository>(createdAtStart = true) { HabitsRepositoryImpl(get(), get(), get(), get(), get(), get(), get<AppScope>().scope) }
+    single<GoalsRepository>(createdAtStart = true) { GoalsRepositoryImpl(get(), get(), get(), get(), get(), get(), get<AppScope>().scope) }
     single<PreferencesRepository> { PreferencesRepositoryImpl(get()) }
     // Eager: it must see the first SignedIn and every drain from app start.
     single<ModuleRefresher>(createdAtStart = true) {
         val auth = get<AuthRepository>()
         val tasks = get<TasksRepository>()
         val money = get<MoneyRepository>()
+        val habits = get<HabitsRepository>()
+        val goals = get<GoalsRepository>()
         val engine = get<SyncEngine>()
         ModuleRefresherImpl(
             session = auth.session,
@@ -77,6 +86,8 @@ fun dataModule(baseUrl: String): Module = module {
                 "user" to { auth.refresh() },
                 "tasks" to { tasks.refresh() },
                 "money" to { money.refresh() },
+                "habits" to { habits.refresh() },
+                "goals" to { goals.refresh() },
             ),
         )
     }

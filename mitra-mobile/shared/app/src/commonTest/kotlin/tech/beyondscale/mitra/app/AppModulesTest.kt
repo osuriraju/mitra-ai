@@ -14,6 +14,8 @@ import tech.beyondscale.mitra.data.remote.SecureStore
 import tech.beyondscale.mitra.data.sync.PeriodicSync
 import tech.beyondscale.mitra.data.sync.SyncScheduler
 import tech.beyondscale.mitra.domain.repository.AuthRepository
+import tech.beyondscale.mitra.domain.repository.GoalsRepository
+import tech.beyondscale.mitra.domain.repository.HabitsRepository
 import tech.beyondscale.mitra.domain.repository.ModuleRefresher
 import tech.beyondscale.mitra.domain.repository.MoneyRepository
 import tech.beyondscale.mitra.domain.repository.PreferencesRepository
@@ -23,6 +25,14 @@ import tech.beyondscale.mitra.domain.repository.TasksRepository
 import tech.beyondscale.mitra.feature.auth.ForgotPasswordViewModel
 import tech.beyondscale.mitra.feature.auth.LoginViewModel
 import tech.beyondscale.mitra.feature.auth.SignupViewModel
+import tech.beyondscale.mitra.feature.goals.GoalDetailViewModel
+import tech.beyondscale.mitra.feature.goals.GoalEditorViewModel
+import tech.beyondscale.mitra.feature.goals.GoalReviewViewModel
+import tech.beyondscale.mitra.feature.goals.GoalsViewModel
+import tech.beyondscale.mitra.feature.habits.HabitDetailViewModel
+import tech.beyondscale.mitra.feature.habits.HabitEditorViewModel
+import tech.beyondscale.mitra.feature.habits.HabitHistoryViewModel
+import tech.beyondscale.mitra.feature.habits.HabitsViewModel
 import tech.beyondscale.mitra.feature.money.BudgetsViewModel
 import tech.beyondscale.mitra.feature.money.CategoriesViewModel
 import tech.beyondscale.mitra.feature.money.MoneyViewModel
@@ -91,5 +101,15 @@ class AppModulesTest : ViewModelTest() {
         koin.get<CategoriesViewModel>()
         koin.get<RecurringViewModel>()
         koin.get<SubscriptionsViewModel>()
+        koin.get<HabitsRepository>()
+        koin.get<GoalsRepository>()
+        koin.get<HabitsViewModel>()
+        koin.get<HabitEditorViewModel>()
+        koin.get<HabitDetailViewModel> { parametersOf("h1") }
+        koin.get<HabitHistoryViewModel> { parametersOf("h1") }
+        koin.get<GoalsViewModel>()
+        koin.get<GoalEditorViewModel>()
+        koin.get<GoalDetailViewModel> { parametersOf("g1") }
+        koin.get<GoalReviewViewModel>()
     }
 }

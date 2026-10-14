@@ -29,6 +29,12 @@ import kotlin.reflect.KClass
 @Serializable data object RecurringDest
 @Serializable data object SubscriptionsDest
 
+/** Habits and Goals sub-screens, stacked over their list. */
+@Serializable data class HabitDetailDest(val id: String)
+@Serializable data class HabitHistoryDest(val id: String)
+@Serializable data class GoalDetailDest(val id: String)
+@Serializable data object GoalReviewDest
+
 /**
  * How much of the shell a route shows: both bars ([Tab]); the bottom bar with the screen drawing its own top bar
  * (a tab, [TabOwnBar], or a back-bar [Detail] screen); or none ([Fullscreen]).
@@ -39,19 +45,24 @@ internal enum class Chrome { Tab, TabOwnBar, Detail, Fullscreen }
 private val NON_TAB_ROUTES = listOf(
     TasksDest::class, TaskDetailDest::class, ProjectDetailDest::class, FocusDest::class,
     MoneyDest::class, TransactionsDest::class, BudgetsDest::class, CategoriesDest::class, RecurringDest::class, SubscriptionsDest::class,
+    HabitsDest::class, HabitDetailDest::class, HabitHistoryDest::class, GoalsDest::class, GoalDetailDest::class, GoalReviewDest::class,
 )
 
 /** Detail routes that belong to the Money tab (the rest of the detail routes live under Tasks). */
 internal val MONEY_DETAIL_ROUTES = listOf(TransactionsDest::class, BudgetsDest::class, CategoriesDest::class, RecurringDest::class, SubscriptionsDest::class)
+
+/** Detail routes that belong to Habits / Goals (highlighting that tab or More entry). */
+internal val HABIT_DETAIL_ROUTES = listOf(HabitDetailDest::class, HabitHistoryDest::class)
+internal val GOAL_DETAIL_ROUTES = listOf(GoalDetailDest::class, GoalReviewDest::class)
 
 /** The chrome for the current destination, given its `hasRoute` check (how MainShell resolves it). */
 internal fun chromeForDestination(hasRoute: (KClass<*>) -> Boolean): Chrome = chromeFor(NON_TAB_ROUTES.firstOrNull(hasRoute))
 
 internal fun chromeFor(route: KClass<*>?): Chrome = when (route) {
     TaskDetailDest::class, ProjectDetailDest::class -> Chrome.Detail
-    in MONEY_DETAIL_ROUTES -> Chrome.Detail
+    in MONEY_DETAIL_ROUTES, in HABIT_DETAIL_ROUTES, in GOAL_DETAIL_ROUTES -> Chrome.Detail
     FocusDest::class -> Chrome.Fullscreen
-    TasksDest::class, MoneyDest::class -> Chrome.TabOwnBar
+    TasksDest::class, MoneyDest::class, HabitsDest::class, GoalsDest::class -> Chrome.TabOwnBar
     else -> Chrome.Tab
 }
 

@@ -10,6 +10,14 @@ import tech.beyondscale.mitra.domain.usecase.SignupUseCase
 import tech.beyondscale.mitra.feature.auth.ForgotPasswordViewModel
 import tech.beyondscale.mitra.feature.auth.LoginViewModel
 import tech.beyondscale.mitra.feature.auth.SignupViewModel
+import tech.beyondscale.mitra.feature.goals.GoalDetailViewModel
+import tech.beyondscale.mitra.feature.goals.GoalEditorViewModel
+import tech.beyondscale.mitra.feature.goals.GoalReviewViewModel
+import tech.beyondscale.mitra.feature.goals.GoalsViewModel
+import tech.beyondscale.mitra.feature.habits.HabitDetailViewModel
+import tech.beyondscale.mitra.feature.habits.HabitEditorViewModel
+import tech.beyondscale.mitra.feature.habits.HabitHistoryViewModel
+import tech.beyondscale.mitra.feature.habits.HabitsViewModel
 import tech.beyondscale.mitra.feature.money.BudgetsViewModel
 import tech.beyondscale.mitra.feature.money.CategoriesViewModel
 import tech.beyondscale.mitra.feature.money.MoneyViewModel
@@ -45,6 +53,14 @@ val featureModule = module {
     viewModelOf(::CategoriesViewModel)
     viewModelOf(::RecurringViewModel)
     viewModelOf(::SubscriptionsViewModel)
+    viewModelOf(::HabitsViewModel)
+    viewModelOf(::HabitEditorViewModel)
+    viewModelOf(::GoalsViewModel)
+    viewModelOf(::GoalEditorViewModel)
+    viewModelOf(::GoalReviewViewModel)
+    viewModel { (id: String) -> HabitDetailViewModel(id, get(), get(), get()) }
+    viewModel { (id: String) -> HabitHistoryViewModel(id, get(), get()) }
+    viewModel { (id: String) -> GoalDetailViewModel(id, get(), get(), get(), get()) }
     viewModel { (id: String) -> TaskDetailViewModel(id, get(), get(), get(), get()) }
     viewModel { (taskId: String) -> FocusViewModel(taskId, get(), get(), get()) }
     viewModel { (id: String) -> ProjectDetailViewModel(id, get(), get(), get()) }
