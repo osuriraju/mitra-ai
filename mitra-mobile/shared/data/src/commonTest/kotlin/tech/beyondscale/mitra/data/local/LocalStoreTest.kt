@@ -3,7 +3,12 @@ package tech.beyondscale.mitra.data.local
 import app.cash.turbine.test
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runTest
+import tech.beyondscale.mitra.data.db.Accounts
+import tech.beyondscale.mitra.data.db.Categories
 import tech.beyondscale.mitra.data.db.MitraDb
+import tech.beyondscale.mitra.data.db.Recurring
+import tech.beyondscale.mitra.data.db.Subscriptions
+import tech.beyondscale.mitra.data.db.Transactions
 import tech.beyondscale.mitra.data.db.Projects
 import tech.beyondscale.mitra.data.db.Tasks
 import tech.beyondscale.mitra.data.testDriver
@@ -40,5 +45,21 @@ class LocalStoreTest {
         assertEquals(emptyList(), db.tasksQueries.selectIds().executeAsList())
         assertEquals(emptyList(), db.projectsQueries.selectIds().executeAsList())
         assertEquals("Light", prefs.get(PrefKeys.THEME))
+    }
+
+    @Test fun clearUserDataRemovesMoney() {
+        db.accountsQueries.upsert(Accounts("a1", "HDFC", "1234", "bank", 100, 0, 0))
+        db.categoriesQueries.upsert(Categories("c1", "Food", "🍜", "expense", "food", null, 0, 0))
+        db.transactionsQueries.upsert(Transactions("t1", "expense", 100, "c1", "a1", null, "Cafe", null, "2026-10-14", "09:00", "user", null, "[]"))
+        db.recurringQueries.upsert(Recurring("r1", "Rent", "🏠", 100, 5, "UPI", "bill", 1, null, "a1", null, null))
+        db.subscriptionsQueries.upsert(Subscriptions("s1", "Netflix", 100, "Monthly", "2026-11-01", "#e50914", "N", null, null, "a1"))
+
+        LocalData(db).clearUserData()
+
+        assertEquals(0, db.accountsQueries.selectIds().executeAsList().size)
+        assertEquals(0, db.categoriesQueries.selectIds().executeAsList().size)
+        assertEquals(0, db.transactionsQueries.selectIds().executeAsList().size)
+        assertEquals(0, db.recurringQueries.selectIds().executeAsList().size)
+        assertEquals(0, db.subscriptionsQueries.selectIds().executeAsList().size)
     }
 }

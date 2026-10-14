@@ -9,5 +9,10 @@ class LocalData(private val db: MitraDb) {
         db.userQueries.deleteAll()
         db.tasksQueries.deleteAll()
         db.projectsQueries.deleteAll()
+        db.accountsQueries.deleteAll()
+        db.categoriesQueries.deleteAll()
+        db.transactionsQueries.deleteAll()
+        db.recurringQueries.deleteAll()
+        db.subscriptionsQueries.deleteAll()
     }
 }

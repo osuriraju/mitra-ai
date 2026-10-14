@@ -1,0 +1,68 @@
+-- v2 (Phase 2 Tasks) → v3 (Phase 3 Money)
+CREATE TABLE accounts (
+  id TEXT NOT NULL PRIMARY KEY,
+  name TEXT NOT NULL,
+  mask TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  balancePaise INTEGER NOT NULL,
+  archived INTEGER NOT NULL,
+  position INTEGER NOT NULL
+);
+
+CREATE TABLE categories (
+  id TEXT NOT NULL PRIMARY KEY,
+  name TEXT NOT NULL,
+  emoji TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  slug TEXT,
+  budgetPaise INTEGER,
+  archived INTEGER NOT NULL,
+  position INTEGER NOT NULL
+);
+
+CREATE TABLE transactions (
+  id TEXT NOT NULL PRIMARY KEY,
+  kind TEXT NOT NULL,
+  amountPaise INTEGER NOT NULL,
+  categoryId TEXT,
+  accountId TEXT NOT NULL,
+  toAccountId TEXT,
+  merchant TEXT NOT NULL,
+  note TEXT,
+  date TEXT NOT NULL,
+  time TEXT NOT NULL,
+  source TEXT NOT NULL,
+  recurringId TEXT,
+  tags TEXT NOT NULL
+);
+
+CREATE INDEX transactions_date ON transactions(date);
+
+CREATE TABLE recurring (
+  id TEXT NOT NULL PRIMARY KEY,
+  name TEXT NOT NULL,
+  emoji TEXT NOT NULL,
+  amountPaise INTEGER NOT NULL,
+  day INTEGER NOT NULL,
+  method TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  reminder INTEGER NOT NULL,
+  categoryId TEXT,
+  accountId TEXT,
+  toAccountId TEXT,
+  lastPaidOn TEXT
+);
+
+CREATE TABLE subscriptions (
+  id TEXT NOT NULL PRIMARY KEY,
+  name TEXT NOT NULL,
+  amountPaise INTEGER NOT NULL,
+  cycle TEXT NOT NULL,
+  next TEXT NOT NULL,
+  color TEXT NOT NULL,
+  letter TEXT NOT NULL,
+  lastUsed TEXT,
+  categoryId TEXT,
+  accountId TEXT
+);
+

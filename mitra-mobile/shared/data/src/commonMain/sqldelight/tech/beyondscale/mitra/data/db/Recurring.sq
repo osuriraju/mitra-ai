@@ -1,0 +1,36 @@
+-- Recurring bills / income / transfers.
+CREATE TABLE recurring (
+  id TEXT NOT NULL PRIMARY KEY,
+  name TEXT NOT NULL,
+  emoji TEXT NOT NULL,
+  amountPaise INTEGER NOT NULL,
+  day INTEGER NOT NULL,
+  method TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  reminder INTEGER NOT NULL,
+  categoryId TEXT,
+  accountId TEXT,
+  toAccountId TEXT,
+  lastPaidOn TEXT
+);
+
+selectAll:
+SELECT * FROM recurring ORDER BY day, id;
+
+selectById:
+SELECT * FROM recurring WHERE id = ?;
+
+selectIds:
+SELECT id FROM recurring;
+
+upsert:
+INSERT OR REPLACE INTO recurring VALUES ?;
+
+setLastPaidOn:
+UPDATE recurring SET lastPaidOn = ? WHERE id = ?;
+
+delete:
+DELETE FROM recurring WHERE id = ?;
+
+deleteAll:
+DELETE FROM recurring;

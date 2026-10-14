@@ -1,0 +1,43 @@
+-- Last 12 months of transactions, as returned by the server.
+CREATE TABLE transactions (
+  id TEXT NOT NULL PRIMARY KEY,
+  kind TEXT NOT NULL,
+  amountPaise INTEGER NOT NULL,
+  categoryId TEXT,
+  accountId TEXT NOT NULL,
+  toAccountId TEXT,
+  merchant TEXT NOT NULL,
+  note TEXT,
+  date TEXT NOT NULL,
+  time TEXT NOT NULL,
+  source TEXT NOT NULL,
+  recurringId TEXT,
+  tags TEXT NOT NULL
+);
+
+CREATE INDEX transactions_date ON transactions(date);
+
+selectAll:
+SELECT * FROM transactions ORDER BY date DESC, time DESC, id;
+
+selectById:
+SELECT * FROM transactions WHERE id = ?;
+
+selectIds:
+SELECT id FROM transactions;
+
+selectIdsOnOrAfter:
+SELECT id FROM transactions WHERE date >= ?;
+
+upsert:
+INSERT OR REPLACE INTO transactions VALUES ?;
+
+-- Deleting a category leaves its transactions uncategorised (server FK is SET NULL).
+clearCategory:
+UPDATE transactions SET categoryId = NULL WHERE categoryId = ?;
+
+delete:
+DELETE FROM transactions WHERE id = ?;
+
+deleteAll:
+DELETE FROM transactions;

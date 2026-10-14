@@ -1,0 +1,32 @@
+-- Money categories (non-archived), in server order.
+CREATE TABLE categories (
+  id TEXT NOT NULL PRIMARY KEY,
+  name TEXT NOT NULL,
+  emoji TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  slug TEXT,
+  budgetPaise INTEGER,
+  archived INTEGER NOT NULL,
+  position INTEGER NOT NULL
+);
+
+selectAll:
+SELECT * FROM categories ORDER BY position, id;
+
+selectById:
+SELECT * FROM categories WHERE id = ?;
+
+selectIds:
+SELECT id FROM categories;
+
+upsert:
+INSERT OR REPLACE INTO categories VALUES ?;
+
+nextPosition:
+SELECT COALESCE(MAX(position), -1) + 1 FROM categories;
+
+delete:
+DELETE FROM categories WHERE id = ?;
+
+deleteAll:
+DELETE FROM categories;

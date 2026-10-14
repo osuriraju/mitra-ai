@@ -1,0 +1,31 @@
+-- Tracked subscriptions.
+CREATE TABLE subscriptions (
+  id TEXT NOT NULL PRIMARY KEY,
+  name TEXT NOT NULL,
+  amountPaise INTEGER NOT NULL,
+  cycle TEXT NOT NULL,
+  next TEXT NOT NULL,
+  color TEXT NOT NULL,
+  letter TEXT NOT NULL,
+  lastUsed TEXT,
+  categoryId TEXT,
+  accountId TEXT
+);
+
+selectAll:
+SELECT * FROM subscriptions ORDER BY next, id;
+
+selectById:
+SELECT * FROM subscriptions WHERE id = ?;
+
+selectIds:
+SELECT id FROM subscriptions;
+
+upsert:
+INSERT OR REPLACE INTO subscriptions VALUES ?;
+
+delete:
+DELETE FROM subscriptions WHERE id = ?;
+
+deleteAll:
+DELETE FROM subscriptions;

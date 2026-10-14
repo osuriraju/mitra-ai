@@ -30,7 +30,7 @@ class MigrationTest {
             0,
         )
 
-        assertEquals(2L, MitraDb.Schema.version)
+        assertEquals(3L, MitraDb.Schema.version)
         MitraDb.Schema.migrate(driver, 1, MitraDb.Schema.version)
         val db = MitraDb(driver)
 
@@ -51,5 +51,37 @@ class MigrationTest {
 
         db.outboxQueries.insert("o2", "task", "PATCH", "tasks/t1", "{}", "task:t1", 1, "t1")
         assertEquals(listOf("t1"), db.outboxQueries.pendingEntityIds("task").executeAsList())
+    }
+
+    @Test fun phase2DatabaseUpgradesInPlace() {
+        val driver = JdbcSqliteDriver(JdbcSqliteDriver.IN_MEMORY)
+        v1.forEach { driver.execute(null, it, 0) }
+        MitraDb.Schema.migrate(driver, 1, 2) // now a genuine v2 database
+        driver.execute(
+            null,
+            "INSERT INTO tasks(id, title, status, done, notes, someday, source, createdAt) " +
+                "VALUES ('t1', 'Write', 'todo', 0, '', 0, 'user', '2026-10-14T04:30:00Z')",
+            0,
+        )
+        driver.execute(
+            null,
+            "INSERT INTO outbox(id, entity, method, path, body, coalesceKey, createdAt, entityId) " +
+                "VALUES ('o1', 'task', 'PATCH', 'tasks/t1', '{}', 'task:t1', 0, 't1')",
+            0,
+        )
+
+        MitraDb.Schema.migrate(driver, 2, MitraDb.Schema.version)
+        val db = MitraDb(driver)
+
+        assertEquals(3L, MitraDb.Schema.version)
+        assertEquals("Write", db.tasksQueries.selectById("t1").executeAsOne().title)
+        assertEquals("o1", db.outboxQueries.selectAll().executeAsList().single().id)
+        assertEquals(0L, db.transactionsQueries.selectIds().executeAsList().size.toLong())
+        val count = driver.executeQuery(null, "SELECT count(*) FROM transactions", { c ->
+            app.cash.sqldelight.db.QueryResult.Value(if (c.next().value) c.getLong(0) else null)
+        }, 0).value
+        assertEquals(0L, count)
+        db.accountsQueries.upsert(Accounts("a1", "HDFC", "1234", "bank", 100, 0, 0))
+        assertEquals(listOf("a1"), db.accountsQueries.selectIds().executeAsList())
     }
 }
