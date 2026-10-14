@@ -1,4 +1,5 @@
-import { BadGatewayException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadGatewayException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { createHash } from 'node:crypto';
 import { PinoLogger } from 'nestjs-pino';
 import { todayISO } from '../common/money';
@@ -8,6 +9,7 @@ import { AiContextService } from './context.service';
 import { OpenAiProvider } from './provider';
 import { Ask, JournalReplySchema, LogAction, ModelReply, ModelReplySchema, ModelSuggestion, SuggestionsReplySchema } from './schemas';
 
+const idInUse = () => new ConflictException({ code: 'ID_CONFLICT', message: 'That action id is already in use' });
 const fmtInr = (n: number) => '₹' + Math.round(n).toLocaleString('en-IN');
 const dayLabel = (iso: string) => { const t = todayISO(); const d = Math.round((Date.parse(iso) - Date.parse(t)) / 86_400_000); if (d === 0) return 'Today'; if (d === 1) return 'Tomorrow'; if (d === -1) return 'Yesterday'; const x = new Date(iso + 'T00:00:00Z'); return `${['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][x.getUTCDay()]} ${x.getUTCDate()} ${['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][x.getUTCMonth()]}`; };
 const fmtTime = (t: string) => { const [h, m] = t.split(':').map(Number); return `${h % 12 || 12}:${String(m).padStart(2, '0')} ${h < 12 ? 'AM' : 'PM'}`; };
@@ -99,16 +101,54 @@ export class AiService {
 
   /* ---------- audit log ---------- */
   async actions(userId: string) { return (await this.prisma.aiAction.findMany({ where: { userId }, orderBy: { createdAt: 'desc' }, take: 300 })).map(this.actionOut); }
-  async logAction(userId: string, a: LogAction) { return this.actionOut(await this.prisma.aiAction.create({ data: { userId, action: a.action, detail: a.detail, state: a.state, tone: a.tone, revertible: a.revertible, revert: a.revert as object[] | undefined } })); }
-  /** Append-only: the original row is marked, and a new "Reverted" row is added. Returns both. */
+  /**
+   * Idempotent on the client's action id: a retry of a log that already landed returns the original row unchanged;
+   * an id already used by another user's action is a 409. Without an id (web) every call logs a new row, as before.
+   */
+  async logAction(userId: string, a: LogAction) {
+    if (a.id) { const prior = await this.priorAction(userId, a.id); if (prior) return prior; }
+    try {
+      const row = await this.prisma.$transaction((db) => db.aiAction.create({ data: { id: a.id, userId, action: a.action, detail: a.detail, state: a.state, tone: a.tone, revertible: a.revertible, revert: a.revert as object[] | undefined } }));
+      return this.actionOut(row);
+    } catch (e) {
+      // Lost a race with a concurrent request carrying the same id: the winner's row is the answer.
+      if (a.id && e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
+        const prior = await this.priorAction(userId, a.id);
+        if (prior) return prior;
+        throw idInUse();
+      }
+      throw e;
+    }
+  }
+  /** The earlier action logged with `id`, null when the id is unused; 409 when it belongs to another user. */
+  private async priorAction(userId: string, id: string) {
+    const p = await this.prisma.aiAction.findUnique({ where: { id } });
+    if (!p) return null;
+    if (p.userId !== userId) throw idInUse();
+    return this.actionOut(p);
+  }
+  /**
+   * Append-only: the original row is marked, and a new "Reverted" row is added. Returns both. Safe to retry: once an
+   * action is reverted (by this call, an earlier one, or a concurrent one) the same result is returned — the original,
+   * its existing "Reverted" row and the undo ops — and no second "Reverted" row is ever written.
+   */
   async revert(userId: string, id: string) {
     const a = await this.prisma.aiAction.findFirst({ where: { id, userId } }); if (!a) throw new NotFoundException({ code: 'NOT_FOUND', message: 'Action not found' });
-    if (a.revertedAt) return { original: this.actionOut(a), reverted: null, revert: [] };
-    const [orig, rev] = await this.prisma.$transaction([
-      this.prisma.aiAction.update({ where: { id }, data: { revertedAt: new Date(), state: `${a.state} · reverted` } }),
-      this.prisma.aiAction.create({ data: { userId, action: 'Reverted', detail: a.detail, state: 'By you', tone: 'warning', revertible: false, revertOfId: id } }),
-    ]);
-    return { original: this.actionOut(orig), reverted: this.actionOut(rev), revert: (a.revert as object[] | null) ?? [] };
+    const ops = (a.revert as object[] | null) ?? [];
+    if (!a.revertedAt) {
+      const done = await this.prisma.$transaction(async (db) => {
+        // Conditional claim: only one concurrent revert flips revertedAt; the loser falls through to the read below.
+        const { count } = await db.aiAction.updateMany({ where: { id, userId, revertedAt: null }, data: { revertedAt: new Date(), state: `${a.state} · reverted` } });
+        if (count === 0) return null;
+        const rev = await db.aiAction.create({ data: { userId, action: 'Reverted', detail: a.detail, state: 'By you', tone: 'warning', revertible: false, revertOfId: id } });
+        const orig = await db.aiAction.findUnique({ where: { id } });
+        return { original: this.actionOut(orig!), reverted: this.actionOut(rev), revert: ops };
+      });
+      if (done) return done;
+    }
+    const orig = (await this.prisma.aiAction.findUnique({ where: { id } }))!;
+    const rev = await this.prisma.aiAction.findFirst({ where: { userId, revertOfId: id }, orderBy: { createdAt: 'asc' } });
+    return { original: this.actionOut(orig), reverted: rev ? this.actionOut(rev) : null, revert: ops };
   }
   private actionOut = (a: { id: string; action: string; detail: string; state: string; tone: string; revertible: boolean; revertedAt: Date | null; createdAt: Date; revert: unknown }) => {
     const d = a.createdAt; const t = todayISO(); const iso = d.toISOString().slice(0, 10); const hh = d.getHours(); const time = `${hh % 12 || 12}:${String(d.getMinutes()).padStart(2, '0')} ${hh < 12 ? 'AM' : 'PM'}`;

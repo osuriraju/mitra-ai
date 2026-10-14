@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { isoDate, hhmm } from '../money/schemas';
+import { id, isoDate, hhmm } from '../money/schemas';
 
 /* ---------- what the client sends ---------- */
 export const AskSchema = z.object({
@@ -7,7 +7,8 @@ export const AskSchema = z.object({
   history: z.array(z.object({ who: z.enum(['user', 'ai']), text: z.string().max(4000) })).max(12).default([]),
 });
 export const JournalDraftSchema = z.object({ date: isoDate });
-export const LogActionSchema = z.object({ action: z.string().trim().min(1).max(80), detail: z.string().max(500).default(''), state: z.string().max(60).default('Approved by you'), tone: z.string().max(20).default('success'), revertible: z.boolean().default(false), revert: z.array(z.record(z.string(), z.unknown())).max(50).optional() });
+/** `id` (optional) is the client's action id — the idempotency key for retries. */
+export const LogActionSchema = z.object({ id: id.optional(), action: z.string().trim().min(1).max(80), detail: z.string().max(500).default(''), state: z.string().max(60).default('Approved by you'), tone: z.string().max(20).default('success'), revertible: z.boolean().default(false), revert: z.array(z.record(z.string(), z.unknown())).max(50).optional() });
 export type Ask = z.infer<typeof AskSchema>; export type LogAction = z.infer<typeof LogActionSchema>;
 
 /* ---------- what the model must return (validated, never trusted blindly) ---------- */
