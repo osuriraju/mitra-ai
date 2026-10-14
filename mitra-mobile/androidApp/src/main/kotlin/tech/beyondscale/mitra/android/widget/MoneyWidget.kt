@@ -37,21 +37,17 @@ import androidx.glance.text.FontWeight
 import androidx.glance.text.Text
 import androidx.glance.text.TextStyle
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.get
 import tech.beyondscale.mitra.android.R
 import tech.beyondscale.mitra.core.AppClock
 import tech.beyondscale.mitra.core.dayFlow
-import tech.beyondscale.mitra.domain.model.Category
-import tech.beyondscale.mitra.domain.model.Recurring
-import tech.beyondscale.mitra.domain.model.Subscription
-import tech.beyondscale.mitra.domain.model.Transaction
 import tech.beyondscale.mitra.domain.money.BudgetTone
 import tech.beyondscale.mitra.domain.money.HIDDEN_AMOUNT
+import tech.beyondscale.mitra.domain.money.MoneyWidgetInputs
 import tech.beyondscale.mitra.domain.money.MoneyWidgetModel
-import tech.beyondscale.mitra.domain.money.moneyWidgetModel
+import tech.beyondscale.mitra.domain.money.moneyWidgetInputs
 import tech.beyondscale.mitra.domain.repository.AuthRepository
 import tech.beyondscale.mitra.domain.repository.MoneyRepository
 import tech.beyondscale.mitra.domain.repository.PreferencesRepository
@@ -92,29 +88,12 @@ class MoneyWidget : GlanceAppWidget(), KoinComponent {
     }
 }
 
-/** Everything the widget model is computed from, except the per-widget "Hide amounts". */
-internal data class MoneyWidgetInputs(
-    val categories: List<Category>,
-    val txs: List<Transaction>,
-    val recurring: List<Recurring>,
-    val subs: List<Subscription>,
-    val today: String,
-    val signedIn: Boolean,
-    val moneyEnabled: Boolean,
-) {
-    fun model(hideAmounts: Boolean): MoneyWidgetModel =
-        moneyWidgetModel(categories, txs, recurring, subs, today, signedIn, hideAmounts, moneyEnabled)
-}
-
-/** Shared by the widget and [WidgetUpdater]: money flows + the local account (signed in, Money module on) + the day. */
-internal fun moneyWidgetInputs(money: MoneyRepository, auth: AuthRepository, clock: AppClock): Flow<MoneyWidgetInputs> {
-    val data = combine(money.categories, money.transactions, money.recurring, money.subscriptions) { c, t, r, s ->
-        MoneyWidgetInputs(c, t, r, s, today = "", signedIn = false, moneyEnabled = true)
-    }
-    return combine(data, auth.localUser, clock.dayFlow()) { d, user, today ->
-        d.copy(today = today, signedIn = user != null, moneyEnabled = user?.settings?.modules?.money ?: true)
-    }
-}
+/** Shared by the widget and [WidgetUpdater]: money flows + the local account and its session + the day. */
+internal fun moneyWidgetInputs(money: MoneyRepository, auth: AuthRepository, clock: AppClock): Flow<MoneyWidgetInputs> =
+    moneyWidgetInputs(
+        money.categories, money.transactions, money.recurring, money.subscriptions,
+        auth.localUser, auth.session, clock.dayFlow(),
+    )
 
 private const val MONEY_URI = "mitra://money"
 private const val ADD_EXPENSE_URI = "mitra://quick-add/expense"
@@ -125,7 +104,7 @@ private fun MoneyWidgetContent(model: MoneyWidgetModel, hidden: Boolean, p: Widg
     val context = LocalContext.current
     val size = LocalSize.current
     val small = size.width < TasksWidget.MEDIUM_MIN_WIDTH
-    Box(modifier = GlanceModifier.fillMaxSize().background(p.surface).cornerRadius(16.dp).padding(12.dp)) {
+    Box(modifier = GlanceModifier.fillMaxSize().background(p.surface).cornerRadius(16.dp).padding(if (small) 10.dp else 12.dp)) {
         when (model) {
             MoneyWidgetModel.SignedOut -> Centered(context.getString(R.string.money_widget_sign_in), p, openApp(context))
             MoneyWidgetModel.MoneyOff -> Centered(context.getString(R.string.money_widget_off), p, openApp(context))
@@ -153,7 +132,7 @@ private fun ExpenseButton(p: WidgetPalette, compact: Boolean = false) {
     val context = LocalContext.current
     val label = context.getString(R.string.money_widget_add_expense_cd)
     Box(
-        modifier = GlanceModifier.height(30.dp).cornerRadius(15.dp).background(p.accent).padding(horizontal = if (compact) 10.dp else 12.dp)
+        modifier = GlanceModifier.height(28.dp).cornerRadius(14.dp).background(p.accent).padding(horizontal = if (compact) 10.dp else 12.dp)
             .clickable(openUri(context, ADD_EXPENSE_URI)).semantics { contentDescription = label },
         contentAlignment = Alignment.Center,
     ) {
@@ -171,7 +150,8 @@ private fun Hero(text: String, description: String, p: WidgetPalette, small: Boo
         text,
         maxLines = 1,
         modifier = GlanceModifier.semantics { contentDescription = description },
-        style = TextStyle(color = p.text, fontSize = if (small) 22.sp else 26.sp, fontWeight = FontWeight.Bold),
+        // 2×2 is ~90dp inside the padding: 20sp keeps "₹12,400" on one line there.
+        style = TextStyle(color = p.text, fontSize = if (small) 20.sp else 26.sp, fontWeight = FontWeight.Bold),
     )
 }
 
@@ -186,12 +166,15 @@ private fun Budget(model: MoneyWidgetModel.Budget, hidden: Boolean, small: Boole
     Column(modifier = GlanceModifier.fillMaxSize().clickable(openUri(context, MONEY_URI))) {
         Header(context.getString(R.string.money_widget_safe_to_spend), small, p)
         Spacer(GlanceModifier.height(4.dp))
-        Hero(context.getString(R.string.money_widget_per_day, model.safe), description, p, small)
         if (small) {
+            // Too narrow for "₹12,400 / day" on one line: the unit goes on its own line.
+            Hero(model.safe, description, p, small = true)
+            Text(context.getString(R.string.money_widget_per_day_unit), maxLines = 1, style = TextStyle(color = p.muted, fontSize = 12.sp))
             Spacer(GlanceModifier.defaultWeight())
             ExpenseButton(p)
             return@Column
         }
+        Hero(context.getString(R.string.money_widget_per_day, model.safe), description, p, small = false)
         Spacer(GlanceModifier.height(6.dp))
         Text(
             model.line,

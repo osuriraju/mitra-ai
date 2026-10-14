@@ -1,6 +1,7 @@
 package tech.beyondscale.mitra.android.widget
 
 import android.appwidget.AppWidgetManager
+import android.content.ComponentName
 import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -22,7 +23,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
@@ -35,7 +36,10 @@ import androidx.glance.appwidget.GlanceAppWidgetManager
 import androidx.glance.appwidget.state.getAppWidgetState
 import androidx.glance.appwidget.state.updateAppWidgetState
 import androidx.glance.state.PreferencesGlanceStateDefinition
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.koin.android.ext.android.inject
 import tech.beyondscale.mitra.android.R
 import tech.beyondscale.mitra.designsystem.components.MitraButton
@@ -60,7 +64,9 @@ class MoneyWidgetConfigActivity : ComponentActivity() {
             ?: AppWidgetManager.INVALID_APPWIDGET_ID
         // Until Done: backing out of the first placement cancels it (the launcher drops the widget).
         setResult(RESULT_CANCELED, resultIntent(appWidgetId))
-        if (appWidgetId == AppWidgetManager.INVALID_APPWIDGET_ID) {
+        // Exported (the launcher starts it), so any app could pass any id: only our own Money widgets are configured.
+        val provider = AppWidgetManager.getInstance(this).getAppWidgetInfo(appWidgetId)?.provider
+        if (appWidgetId == AppWidgetManager.INVALID_APPWIDGET_ID || provider != ComponentName(this, MoneyWidgetReceiver::class.java)) {
             finish()
             return
         }
@@ -78,16 +84,15 @@ class MoneyWidgetConfigActivity : ComponentActivity() {
                 ThemeMode.Auto -> isSystemInDarkTheme()
             }
             MitraTheme(dark) {
-                val scope = rememberCoroutineScope()
-                var hide by remember { mutableStateOf(false) }
-                var loaded by remember { mutableStateOf(false) }
+                var hide by rememberSaveable { mutableStateOf(false) }
+                var loaded by rememberSaveable { mutableStateOf(false) }
                 var saving by remember { mutableStateOf(false) }
                 LaunchedEffect(glanceId) {
                     val state: Preferences = getAppWidgetState(this@MoneyWidgetConfigActivity, PreferencesGlanceStateDefinition, glanceId)
                     val stored = state[MoneyWidget.HIDE_AMOUNTS]
                     // Reconfiguring a widget that is already placed: backing out keeps it (and its current option).
                     if (stored != null) setResult(RESULT_OK, resultIntent(appWidgetId))
-                    hide = stored ?: false
+                    if (!loaded) hide = stored ?: false // after recreation, keep the unsaved choice
                     loaded = true
                 }
                 ConfigScreen(
@@ -96,18 +101,26 @@ class MoneyWidgetConfigActivity : ComponentActivity() {
                     onHideChange = { hide = it },
                     onDone = {
                         saving = true
-                        scope.launch { save(glanceId, appWidgetId, hide) }
+                        save(glanceId, appWidgetId, hide)
                     },
                 )
             }
         }
     }
 
-    private suspend fun save(glanceId: GlanceId, appWidgetId: Int, hide: Boolean) {
-        updateAppWidgetState(this, glanceId) { it[MoneyWidget.HIDE_AMOUNTS] = hide }
-        MoneyWidget().update(this, glanceId)
-        setResult(RESULT_OK, resultIntent(appWidgetId))
-        finish()
+    /**
+     * Writes the option before answering the launcher (so a first placement never draws a frame with amounts the
+     * user just chose to hide). NonCancellable: a recreation or Back mid-save still stores it and finishes.
+     */
+    private fun save(glanceId: GlanceId, appWidgetId: Int, hide: Boolean) {
+        lifecycleScope.launch {
+            withContext(NonCancellable) {
+                updateAppWidgetState(applicationContext, glanceId) { it[MoneyWidget.HIDE_AMOUNTS] = hide }
+                MoneyWidget().update(applicationContext, glanceId)
+                setResult(RESULT_OK, resultIntent(appWidgetId))
+                finish()
+            }
+        }
     }
 
     private fun resultIntent(appWidgetId: Int) = Intent().putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId)

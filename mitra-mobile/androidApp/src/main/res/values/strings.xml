@@ -15,6 +15,7 @@
     <string name="money_widget_description">Safe to spend today, budget and next bill</string>
     <string name="money_widget_safe_to_spend">Safe to spend</string>
     <string name="money_widget_per_day">%1$s / day</string>
+    <string name="money_widget_per_day_unit">per day</string>
     <string name="money_widget_safe_cd">Safe to spend %1$s per day. Open Money</string>
     <string name="money_widget_safe_hidden_cd">Safe to spend per day, amount hidden. Open Money</string>
     <string name="money_widget_line_hidden_cd">Spent this month and budget, amounts hidden</string>

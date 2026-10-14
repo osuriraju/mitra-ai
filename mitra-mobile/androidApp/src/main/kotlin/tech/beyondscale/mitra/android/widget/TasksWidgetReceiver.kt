@@ -16,6 +16,6 @@ class TasksWidgetReceiver : GlanceAppWidgetReceiver() {
     /** Last Tasks widget removed: keep the alarm only while a Money widget still needs it. */
     override fun onDisabled(context: Context) {
         super.onDisabled(context)
-        MidnightReceiver.rescheduleAsync(context)
+        MidnightReceiver.rescheduleAsync(context, goAsync())
     }
 }

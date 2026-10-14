@@ -78,6 +78,9 @@ class MoneyWidgetModelTest {
         assertEquals(HIDDEN_AMOUNT, m.safe)
         assertEquals("₹•••• of ₹••••", m.line)
         assertNull(m.progress)
+        // Over budget, but hidden: the tone would reveal it, so it stays Normal.
+        val over = assertIs<MoneyWidgetModel.Budget>(model(txs = listOf(tx("f", 3_030_000)), hideAmounts = true))
+        assertEquals(BudgetTone.Normal, over.tone)
         val next = assertNotNull(m.next)
         assertFalse(Regex("₹\\s?\\d").containsMatchIn(next), next)
         assertEquals("🏠 Rent · in 3 days · ₹••••", next)

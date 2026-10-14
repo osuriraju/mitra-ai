@@ -58,10 +58,19 @@ class MidnightReceiver : BroadcastReceiver() {
             if (placed) schedule(context) else cancel(context)
         }
 
-        /** [scheduleIfPlaced] from a receiver callback (not suspending), on the app scope. */
-        fun rescheduleAsync(context: Context) {
+        /**
+         * [scheduleIfPlaced] from a receiver callback (not suspending), on the app scope; [pending] (the receiver's
+         * goAsync()) keeps the process alive until it is done.
+         */
+        fun rescheduleAsync(context: Context, pending: BroadcastReceiver.PendingResult?) {
             val app = context.applicationContext
-            get<AppScope>().scope.launch { scheduleIfPlaced(app) }
+            get<AppScope>().scope.launch {
+                try {
+                    scheduleIfPlaced(app)
+                } finally {
+                    pending?.finish()
+                }
+            }
         }
 
         fun cancel(context: Context) {
