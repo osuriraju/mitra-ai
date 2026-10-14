@@ -45,6 +45,8 @@ data class GoalFormState(
     /** One milestone title per line (create only). */
     val milestones: String = "",
     val error: String? = null,
+    /** "Up to 50 milestones" — the server rejects more. */
+    val milestonesError: String? = null,
 )
 
 data class GoalEditorUiState(
@@ -67,7 +69,10 @@ sealed interface GoalEditorAction {
     data object Dismiss : GoalEditorAction
     data class Name(val v: String) : GoalEditorAction
     data class Type(val t: GoalType) : GoalEditorAction
-    /** Kept to digits and dots, like the web's `replace(/[^\d.]/g, '')`. */
+    /**
+     * Kept to digits and dots, like the web's `replace(/[^\d.]/g, '')`; an edit that would leave two dots or a value
+     * above the server's 1e12 cap is refused (the field keeps its previous text).
+     */
     data class Current(val v: String) : GoalEditorAction
     data class Target(val v: String) : GoalEditorAction
     data class Unit(val rupees: Boolean) : GoalEditorAction
@@ -99,6 +104,8 @@ fun goalTypeHint(t: GoalType): String = when (t) {
 class GoalEditorViewModel(private val goals: GoalsRepository, private val clock: AppClock) : ViewModel() {
     private val form = MutableStateFlow(GoalFormState())
     private var editing: Goal? = null
+    /** Bumped by Open / Edit / Dismiss, so an Edit still resolving when the sheet was closed or reopened is dropped. */
+    private var session = 0
 
     private val queue = EventQueue<GoalEditorAction>()
     val events: Flow<UiEvent<GoalEditorAction>> = queue.events
@@ -112,26 +119,33 @@ class GoalEditorViewModel(private val goals: GoalsRepository, private val clock:
     fun onAction(a: GoalEditorAction) {
         when (a) {
             GoalEditorAction.Open -> open()
-            is GoalEditorAction.Edit -> viewModelScope.launch {
-                val g = goals.goals.first().firstOrNull { it.id == a.id } ?: return@launch
-                edit(g)
+            is GoalEditorAction.Edit -> {
+                close()
+                val s = session
+                viewModelScope.launch {
+                    val g = goals.goals.first().firstOrNull { it.id == a.id } ?: return@launch
+                    if (s == session) edit(g)
+                }
             }
             GoalEditorAction.Dismiss -> close()
-            is GoalEditorAction.Name -> form.update { it.copy(name = a.v, error = null) }
+            is GoalEditorAction.Name -> form.update { it.copy(name = a.v.take(NAME_MAX), error = null) }
             is GoalEditorAction.Type -> form.update { it.copy(type = a.t) }
-            is GoalEditorAction.Current -> form.update { it.copy(current = decimal(a.v)) }
-            is GoalEditorAction.Target -> form.update { it.copy(target = decimal(a.v)) }
+            is GoalEditorAction.Current -> form.update { it.copy(current = decimal(a.v, it.current)) }
+            is GoalEditorAction.Target -> form.update { it.copy(target = decimal(a.v, it.target)) }
             is GoalEditorAction.Unit -> form.update { it.copy(unit = if (a.rupees) "₹" else "") }
             is GoalEditorAction.Due -> form.update { it.copy(due = a.iso) }
             is GoalEditorAction.Term -> form.update { it.copy(term = a.t) }
-            is GoalEditorAction.NextAction -> form.update { it.copy(nextAction = a.v) }
+            is GoalEditorAction.NextAction -> form.update { it.copy(nextAction = a.v.take(NEXT_ACTION_MAX)) }
             is GoalEditorAction.Review -> form.update { it.copy(review = a.r) }
-            is GoalEditorAction.Milestones -> form.update { it.copy(milestones = a.text) }
+            is GoalEditorAction.Milestones -> form.update {
+                it.copy(milestones = a.text.split('\n').joinToString("\n") { line -> line.take(MILESTONE_TITLE_MAX) }, milestonesError = null)
+            }
             GoalEditorAction.Save -> save()
         }
     }
 
     private fun open() {
+        session++
         editing = null
         form.value = GoalFormState(open = true, due = addDays(clock.today(), DEFAULT_SPAN_DAYS), milestones = DEFAULT_MILESTONES)
     }
@@ -145,6 +159,7 @@ class GoalEditorViewModel(private val goals: GoalsRepository, private val clock:
     }
 
     private fun close() {
+        session++
         editing = null
         form.value = GoalFormState()
     }
@@ -157,6 +172,11 @@ class GoalEditorViewModel(private val goals: GoalsRepository, private val clock:
             form.update { it.copy(error = "Give the goal a name") }
             return
         }
+        val titles = f.milestones.split('\n').map { it.trim() }.filter { it.isNotEmpty() }
+        if (f.editId == null && titles.size > MILESTONES_MAX) {
+            form.update { it.copy(milestonesError = "Up to $MILESTONES_MAX milestones") }
+            return
+        }
         // Web: `+target || 100`, `+current || 0` (empty, "0" and unparsable text all fall back).
         val target = parse(f.target).takeIf { it != 0.0 } ?: DEFAULT_TARGET
         val current = parse(f.current)
@@ -165,7 +185,11 @@ class GoalEditorViewModel(private val goals: GoalsRepository, private val clock:
         close()
         viewModelScope.launch {
             if (existing != null) {
-                val numbers = f.type != GoalType.Milestone // milestone-type goals derive current/target on the server
+                // Milestone-type goals derive current/target on the server, so they are never sent. Any other type
+                // sends them whenever the type changes (web `GoalForm.save` always sends both), so a milestone goal
+                // turned numeric keeps its derived 2 / 4 on the server instead of stale stored numbers.
+                val numbers = f.type != GoalType.Milestone
+                val forceNumbers = numbers && f.type != existing.type
                 val changes = buildList {
                     if (name != existing.name) add(GoalChange.Name(name))
                     if (f.type != existing.type) add(GoalChange.Type(f.type))
@@ -174,18 +198,18 @@ class GoalEditorViewModel(private val goals: GoalsRepository, private val clock:
                     if (f.unit != existing.unit) add(GoalChange.Unit(f.unit))
                     if (nextAction != existing.nextAction) add(GoalChange.NextAction(nextAction))
                     if (f.review != existing.reviewEvery) add(GoalChange.ReviewEvery(f.review))
-                    if (numbers && current != existing.current) add(GoalChange.Current(current))
-                    if (numbers && target != existing.target) add(GoalChange.Target(target))
+                    if (forceNumbers || (numbers && current != existing.current)) add(GoalChange.Current(current))
+                    if (forceNumbers || (numbers && target != existing.target)) add(GoalChange.Target(target))
                 }
-                if (changes.isEmpty()) return@launch
-                goals.update(existing.id, changes)
+                // Nothing changed: no write, but the same feedback as the web.
+                if (changes.isNotEmpty()) goals.update(existing.id, changes)
                 queue.send(UiEvent.Snack("Goal updated"))
             } else {
                 val g = goals.create(
                     GoalDraft(
                         name = name, type = f.type, term = f.term, due = f.due, current = current, target = target,
                         unit = f.unit, nextAction = nextAction, reviewEvery = f.review,
-                        milestoneTitles = f.milestones.split('\n').map { it.trim() }.filter { it.isNotEmpty() },
+                        milestoneTitles = titles,
                     ),
                 )
                 queue.send(UiEvent.Snack("Goal set · ${g.name}"))
@@ -213,7 +237,17 @@ class GoalEditorViewModel(private val goals: GoalsRepository, private val clock:
         const val DEFAULT_TARGET = 100.0
         const val DEFAULT_MILESTONES = "25%\n50%\n75%\nDone"
 
-        fun decimal(v: String) = v.filter { it in '0'..'9' || it == '.' }
+        /** Server caps (mitra-backend/src/goals/schemas.ts); exceeding them would fail the queued write with a 400. */
+        const val NAME_MAX = 160
+        const val NEXT_ACTION_MAX = 200
+        const val MILESTONES_MAX = 50
+        const val MILESTONE_TITLE_MAX = 120
+        const val NUMBER_MAX = 1e12
+
+        fun decimal(v: String, previous: String): String {
+            val next = v.filter { it in '0'..'9' || it == '.' }
+            return if (next.count { it == '.' } > 1 || parse(next) > NUMBER_MAX) previous else next
+        }
 
         /** JS unary `+` on digits-and-dots text: "" → 0, "1.2.3" → NaN (treated as 0, i.e. falsy). */
         fun parse(v: String): Double = if (v.isEmpty()) 0.0 else v.toDoubleOrNull()?.takeUnless { it.isNaN() } ?: 0.0

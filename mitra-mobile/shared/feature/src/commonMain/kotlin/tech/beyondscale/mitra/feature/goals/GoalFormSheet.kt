@@ -176,6 +176,7 @@ private fun GoalForm(state: GoalEditorUiState, onAction: (GoalEditorAction) -> U
                         value = f.milestones,
                         onValueChange = { onAction(GoalEditorAction.Milestones(it)) },
                         label = "Milestones (one per line)",
+                        error = f.milestonesError,
                         singleLine = false,
                         minLines = 4,
                         imeAction = ImeAction.Default,
