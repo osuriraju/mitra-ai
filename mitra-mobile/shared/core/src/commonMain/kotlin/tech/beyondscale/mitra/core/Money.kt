@@ -6,7 +6,7 @@ import kotlin.math.floor
 /* Ports of inr / inrShort in mitra-frontend/src/lib/dates.ts — output must match the web exactly. */
 
 /** JS Math.round: halves round toward +infinity. */
-private fun jsRound(x: Double): Long = floor(x + 0.5).toLong()
+fun jsRound(x: Double): Long = floor(x + 0.5).toLong()
 
 private fun groupIndian(n: Long): String {
     val s = n.toString()
@@ -65,3 +65,14 @@ fun inrShort(rupees: Double): String = when {
     abs(rupees) >= 1_000 -> "₹${toFixed(rupees / 1_000, 1)}k"
     else -> inr(rupees)
 }
+
+/* Paise (the device's integer money unit) through the same web formatters. */
+
+/** "₹124" for 12350 paise — rounds to whole rupees like the web; never shows a sign. */
+fun inrPaise(paise: Long): String = inr(paise / 100.0)
+
+/** "₹1.50L" · "₹2.5k" · "₹999" for an amount in paise. */
+fun inrShortPaise(paise: Long): String = inrShort(paise / 100.0)
+
+/** "−₹120" (U+2212) when negative, "+₹120" otherwise — the web's signed net amounts. */
+fun signedInrPaise(paise: Long): String = (if (paise < 0) "\u2212" else "+") + inrPaise(paise)

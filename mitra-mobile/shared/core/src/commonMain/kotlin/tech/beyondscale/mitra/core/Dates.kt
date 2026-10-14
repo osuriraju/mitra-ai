@@ -11,8 +11,35 @@ import kotlinx.datetime.plus
 
 private val DOW_LONG = listOf("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
 private val DOW_SHORT = listOf("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
-private val MON_LONG = listOf("January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December")
-private val MON_SHORT = listOf("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
+val MON: List<String> = listOf("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
+val MON_LONG: List<String> = listOf("January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December")
+
+/** "2026-10-14" → "2026-10" */
+fun monthKey(iso: String): String = iso.take(7)
+
+/** Day of the month of an ISO date: "2026-10-14" → 14. */
+fun dayOfMonth(iso: String): Int = LocalDate.parse(iso).day
+
+/** Days in the month of an ISO date (28..31). */
+fun daysInMonth(iso: String): Int {
+    val d = LocalDate.parse(iso)
+    return LocalDate(d.year, d.month, 1).plus(1, DateTimeUnit.MONTH).plus(-1, DateTimeUnit.DAY).day
+}
+
+/** "2026-10-04" → "4 Oct" */
+fun fmtShort(iso: String): String {
+    val d = LocalDate.parse(iso)
+    return "${d.day} ${MON[d.month.number - 1]}"
+}
+
+/** "2026-10" → "October 2026" (web `monthTitle` in money.tsx). */
+fun monthTitle(monthKey: String): String = "${MON_LONG[monthKey.substring(5, 7).toInt() - 1]} ${monthKey.take(4)}"
+
+/** Month-key arithmetic: ("2026-01", -1) → "2025-12". */
+fun addMonthsKey(monthKey: String, n: Int): String = LocalDate.parse("$monthKey-01").plus(n, DateTimeUnit.MONTH).toString().take(7)
+
+/** 1 → "1st", 2 → "2nd", 3 → "3rd", anything else → "<n>th" — the web's rule as is (so 21 → "21th"). */
+fun ordinal(n: Int): String = "$n" + when (n) { 1 -> "st"; 2 -> "nd"; 3 -> "rd"; else -> "th" }
 
 fun addDays(iso: String, n: Int): String = LocalDate.parse(iso).plus(n, DateTimeUnit.DAY).toString()
 
@@ -45,7 +72,7 @@ fun fmtDay(iso: String, today: String, relative: Boolean = true): String {
         -1 -> return "Yesterday"
     }
     val d = LocalDate.parse(iso)
-    return "${DOW_SHORT[d.dayOfWeek.isoDayNumber - 1]} ${d.day} ${MON_SHORT[d.month.number - 1]}"
+    return "${DOW_SHORT[d.dayOfWeek.isoDayNumber - 1]} ${d.day} ${MON[d.month.number - 1]}"
 }
 
 /** "4:05 PM" */
