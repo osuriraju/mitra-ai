@@ -1,6 +1,10 @@
 package tech.beyondscale.mitra.feature.money
 
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.emitAll
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.TestScope
@@ -15,6 +19,7 @@ import tech.beyondscale.mitra.domain.model.CategoryKind
 import tech.beyondscale.mitra.domain.model.RecurringKind
 import tech.beyondscale.mitra.domain.model.Transaction
 import tech.beyondscale.mitra.domain.model.TxKind
+import tech.beyondscale.mitra.domain.repository.MoneyRepository
 import tech.beyondscale.mitra.feature.common.UiEvent
 import tech.beyondscale.mitra.testing.FakeMoneyRepository
 import tech.beyondscale.mitra.testing.FixedClock
@@ -64,8 +69,11 @@ class TxEditorViewModelTest : ViewModelTest() {
     @Test fun keypadBuildsAmountAndFormatsLive() = runTest {
         val r = repo()
         val h = start(r)
+        assertEquals("", h.state.amountShown)
         h.type("12345.5")
         assertEquals("12,345.5", h.state.amountDisplay)
+        // What the sheet hands AmountDisplay: grouped live, never the raw "12345.5".
+        assertEquals("12,345.5", h.state.amountShown)
         assertEquals("Add expense", h.state.title)
         assertEquals("food", h.state.categoryId)
         assertEquals("a1", h.state.accountId)
@@ -256,5 +264,67 @@ class TxEditorViewModelTest : ViewModelTest() {
         assertTrue("addCategory:Gifts" in r.calls)
         assertEquals("cat1", h.state.categoryId)
         assertEquals(listOf("Category added · 🎁 Gifts"), h.snacks)
+    }
+
+    @Test fun editKeepsMissingAccountAndCategory() = runTest {
+        // The transaction's account and category are no longer listed (archived elsewhere): editing the note must not move it.
+        val tx = Transaction("t1", TxKind.Expense, 45_000, "gone-cat", "gone-acc", null, "Swiggy", null, "2026-10-12", "20:15")
+        val r = repo(txs = listOf(tx))
+        val h = start(r, editId = "t1")
+        assertEquals("gone-acc", h.state.accountId)
+        assertEquals("gone-cat", h.state.categoryId)
+        h.vm.onAction(TxEditorAction.Note("team lunch"))
+        h.vm.onAction(TxEditorAction.Save(false))
+        runCurrent()
+        val saved = r.transactionFlow.value.single()
+        assertEquals("gone-acc", saved.accountId)
+        assertEquals("gone-cat", saved.categoryId)
+        assertEquals("team lunch", saved.note)
+        assertEquals(listOf(1_240_000L, -300_000L), r.accountFlow.value.map { it.balancePaise })
+    }
+
+    @Test fun eventsFromAnEarlierOpeningAreDropped() = runTest {
+        val r = repo()
+        val vm = TxEditorViewModel(r, clock)
+        val d = UnconfinedTestDispatcher(testScheduler)
+        backgroundScope.launch(d) { vm.state.collect {} }
+        vm.start(null)
+        runCurrent()
+        "450".forEach { vm.onAction(TxEditorAction.Key(it)) }
+        // Saved while no sheet collects (swiped away mid-save): its Snack and Close stay buffered.
+        vm.onAction(TxEditorAction.Save(false))
+        runCurrent()
+        assertEquals(1, r.transactionFlow.value.size)
+        vm.start(null)
+        runCurrent()
+        val events = mutableListOf<UiEvent<TxEditorAction>>()
+        backgroundScope.launch(d) { vm.events.toList(events) }
+        runCurrent()
+        assertEquals(emptyList(), events)
+        assertFalse(vm.state.value.saving)
+        "20".forEach { vm.onAction(TxEditorAction.Key(it)) }
+        vm.onAction(TxEditorAction.Save(false))
+        runCurrent()
+        assertEquals(listOf("Expense saved · ₹20"), events.filterIsInstance<UiEvent.Snack<TxEditorAction>>().map { it.text })
+        assertTrue(events.last() is UiEvent.Close)
+    }
+
+    @Test fun restartCancelsAPendingEditPrefill() = runTest {
+        val tx = Transaction("t1", TxKind.Income, 45_000, "salary", "a1", null, "Beyond Labs", null, "2026-10-12", "20:15")
+        val inner = repo(txs = listOf(tx))
+        val gate = CompletableDeferred<Unit>()
+        val gated = object : MoneyRepository by inner {
+            override val transactions: Flow<List<Transaction>> = flow { gate.await(); emitAll(inner.transactionFlow) }
+        }
+        val vm = TxEditorViewModel(gated, clock)
+        val d = UnconfinedTestDispatcher(testScheduler)
+        backgroundScope.launch(d) { vm.state.collect {} }
+        vm.start("t1") // suspends reading the transactions
+        vm.start(null)
+        gate.complete(Unit)
+        runCurrent()
+        assertNull(vm.state.value.editId)
+        assertEquals(TxKind.Expense, vm.state.value.kind)
+        assertEquals("Add expense", vm.state.value.title)
     }
 }

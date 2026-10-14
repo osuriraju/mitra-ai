@@ -134,4 +134,18 @@ class TransactionsViewModelTest : ViewModelTest() {
         assertTrue("refresh" in r.calls)
         assertFalse(h.state.refreshing)
     }
+
+    @Test fun filtersOnRemovedCategoryOrAccountAreDropped() = runTest {
+        val r = repo()
+        val h = start(r, initialCategory = "rent")
+        h.vm.onAction(TransactionsAction.Account("a1"))
+        assertEquals(1, h.state.groups.sumOf { it.rows.size })
+        r.categoryFlow.value = listOf(food, salary)
+        r.accountFlow.value = emptyList()
+        assertNull(h.state.categoryId)
+        assertNull(h.state.accountId)
+        assertEquals("All categories", h.state.categoryLabel)
+        assertFalse(h.state.showClear)
+        assertEquals(4, h.state.groups.sumOf { it.rows.size })
+    }
 }

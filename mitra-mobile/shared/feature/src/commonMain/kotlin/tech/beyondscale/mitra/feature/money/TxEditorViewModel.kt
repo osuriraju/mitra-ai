@@ -2,12 +2,17 @@ package tech.beyondscale.mitra.feature.money
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -31,7 +36,6 @@ import tech.beyondscale.mitra.domain.model.TxSource
 import tech.beyondscale.mitra.domain.money.findDuplicate
 import tech.beyondscale.mitra.domain.money.recentMerchants
 import tech.beyondscale.mitra.domain.repository.MoneyRepository
-import tech.beyondscale.mitra.feature.common.EventQueue
 import tech.beyondscale.mitra.feature.common.UiEvent
 
 data class TxOption(val id: String, val label: String)
@@ -45,6 +49,8 @@ data class TxEditorUiState(
     val kind: TxKind = TxKind.Expense,
     val amountText: String = "",
     val amountDisplay: String = "0",
+    /** Exactly what the sheet passes to `AmountDisplay`: the live ₹ grouping, or "" (placeholder "0") when nothing is typed. */
+    val amountShown: String = "",
     /** The keypad is always shown when adding; when editing it opens on tapping the amount (never the system keyboard). */
     val showKeypad: Boolean = true,
     val error: String? = null,
@@ -126,8 +132,18 @@ class TxEditorViewModel(private val money: MoneyRepository, private val clock: A
     private data class Resolved(val categoryId: String?, val accountId: String?, val toAccountId: String?)
 
     private val form = MutableStateFlow(Form())
-    private val queue = EventQueue<TxEditorAction>()
-    val events: Flow<UiEvent<TxEditorAction>> = queue.events
+    /**
+     * Bumped by every [start]. Events carry the session that raised them and are dropped when delivered to a later one,
+     * so a save still in flight when the sheet was swiped away never snacks or closes the next opening.
+     */
+    private var session = 0
+    private var prefill: Job? = null
+    private val channel = Channel<Pair<Int, UiEvent<TxEditorAction>>>(Channel.BUFFERED)
+    val events: Flow<UiEvent<TxEditorAction>> = channel.receiveAsFlow().filter { it.first == session }.map { it.second }
+
+    private fun send(from: Int, e: UiEvent<TxEditorAction>) {
+        channel.trySend(from to e)
+    }
 
     private val data = combine(money.accounts, money.categories, money.transactions, ::Data)
 
@@ -136,8 +152,10 @@ class TxEditorViewModel(private val money: MoneyRepository, private val clock: A
 
     /** Opens the form: a fresh expense for `null`, else prefilled from that transaction (closes if it no longer exists). */
     fun start(editId: String?) {
+        prefill?.cancel()
+        val s = ++session
         form.value = Form()
-        viewModelScope.launch {
+        prefill = viewModelScope.launch {
             val today = clock.today()
             val now = clock.localNow()
             val hhmm = "${now.hour.toString().padStart(2, '0')}:${now.minute.toString().padStart(2, '0')}"
@@ -147,7 +165,7 @@ class TxEditorViewModel(private val money: MoneyRepository, private val clock: A
             }
             val tx = money.transactions.first().firstOrNull { it.id == editId }
             if (tx == null) {
-                queue.send(UiEvent.Close)
+                send(s, UiEvent.Close)
                 return@launch
             }
             form.value = Form(
@@ -188,10 +206,11 @@ class TxEditorViewModel(private val money: MoneyRepository, private val clock: A
         val n = name.trim()
         if (n.isEmpty()) return
         val kind = if (form.value.kind == TxKind.Income) CategoryKind.Income else CategoryKind.Expense
+        val s = session
         viewModelScope.launch {
             val c = money.addCategory(n, emoji.ifBlank { "🎁" }, kind)
-            form.update { it.copy(autoCategory = false, categoryId = c.id, error = null) }
-            queue.send(UiEvent.Snack("Category added · ${c.emoji} ${c.name}"))
+            if (s == session) form.update { it.copy(autoCategory = false, categoryId = c.id, error = null) }
+            send(s, UiEvent.Snack("Category added · ${c.emoji} ${c.name}"))
         }
     }
 
@@ -200,6 +219,7 @@ class TxEditorViewModel(private val money: MoneyRepository, private val clock: A
         // Double-tap guard: claimed synchronously, released on a validation error or after "Save & add another".
         if (!f.ready || f.saving) return
         form.update { it.copy(saving = true, error = null) }
+        val s = session
         viewModelScope.launch {
             val d = data.first()
             val r = resolve(f, d)
@@ -213,7 +233,7 @@ class TxEditorViewModel(private val money: MoneyRepository, private val clock: A
                 else -> null
             }
             if (error != null || paise == null || accountId == null) {
-                form.update { it.copy(error = error, saving = false) }
+                if (s == session) form.update { it.copy(error = error, saving = false) }
                 return@launch
             }
             val existing = f.editing
@@ -225,18 +245,18 @@ class TxEditorViewModel(private val money: MoneyRepository, private val clock: A
             )
             if (existing != null) {
                 money.updateTransaction(existing.id, draft)
-                queue.send(UiEvent.Snack("Transaction updated"))
-                queue.send(UiEvent.Close)
+                send(s, UiEvent.Snack("Transaction updated"))
+                send(s, UiEvent.Close)
                 return@launch
             }
             val tx = money.addTransaction(draft)
             if (f.repeat) money.addRecurring(recurringFor(draft, d.categories.firstOrNull { it.id == draft.categoryId }))
             val text = "${kindName(draft.kind)} saved · ${inrPaise(paise)}" + if (f.repeat) " · repeats monthly" else ""
-            queue.send(UiEvent.Snack(text, TxEditorAction.UndoAdd(tx.id)))
+            send(s, UiEvent.Snack(text, TxEditorAction.UndoAdd(tx.id)))
             if (again) {
-                form.update { it.copy(amount = "", merchant = "", note = "", saving = false) }
+                if (s == session) form.update { it.copy(amount = "", merchant = "", note = "", saving = false) }
             } else {
-                queue.send(UiEvent.Close)
+                send(s, UiEvent.Close)
             }
         }
     }
@@ -262,10 +282,11 @@ class TxEditorViewModel(private val money: MoneyRepository, private val clock: A
         val existing = f.editing ?: return
         if (f.saving) return
         form.update { it.copy(saving = true) }
+        val s = session
         viewModelScope.launch {
             money.deleteTransaction(existing.id)
-            queue.send(UiEvent.Snack("Transaction deleted"))
-            queue.send(UiEvent.Close)
+            send(s, UiEvent.Snack("Transaction deleted"))
+            send(s, UiEvent.Close)
         }
     }
 
@@ -283,6 +304,7 @@ class TxEditorViewModel(private val money: MoneyRepository, private val clock: A
             kind = f.kind,
             amountText = f.amount,
             amountDisplay = AmountInput.display(f.amount),
+            amountShown = if (f.amount.isEmpty()) "" else AmountInput.display(f.amount),
             showKeypad = !edit,
             error = f.error,
             duplicate = dup?.let { "Looks like ${it.merchant} ${inrPaise(it.amountPaise)} was already added at ${fmtTime(it.time)}." },
@@ -318,16 +340,19 @@ class TxEditorViewModel(private val money: MoneyRepository, private val clock: A
 
     private fun resolve(f: Form, d: Data): Resolved {
         val cats = categoriesFor(f.kind, d.categories)
+        val ex = f.editing
         val chosen = f.categoryId
         val categoryId = when {
             // An uncategorised transaction being edited stays so until a category is picked (web: "Pick a category").
             !f.autoCategory && chosen == null && f.kind != TxKind.Transfer -> null
-            !f.autoCategory && chosen != null && cats.any { it.id == chosen } -> chosen
+            // Editing keeps the transaction's own category even when it is no longer listed (web keeps `ex.categoryId`).
+            !f.autoCategory && chosen != null && (cats.any { it.id == chosen } || (ex != null && chosen == ex.categoryId && f.kind == ex.kind)) -> chosen
             f.kind == TxKind.Transfer -> d.categories.firstOrNull { it.slug == TRANSFER_SLUG }?.id
             else -> cats.firstOrNull()?.id
         }
-        val accountId = f.accountId?.takeIf { id -> d.accounts.any { it.id == id } } ?: d.accounts.firstOrNull()?.id
-        val toAccountId = f.toAccountId?.takeIf { id -> d.accounts.any { it.id == id } }
+        // Never silently move an edited transaction to another account because its own is no longer listed.
+        val accountId = f.accountId?.takeIf { id -> d.accounts.any { it.id == id } || id == ex?.accountId } ?: d.accounts.firstOrNull()?.id
+        val toAccountId = f.toAccountId?.takeIf { id -> d.accounts.any { it.id == id } || id == ex?.toAccountId }
             ?: d.accounts.firstOrNull { it.id != accountId }?.id
         return Resolved(categoryId, accountId, toAccountId)
     }

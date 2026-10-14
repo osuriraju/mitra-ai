@@ -119,7 +119,7 @@ private fun TxForm(state: TxEditorUiState, onAction: (TxEditorAction) -> Unit, o
                 onSelect = { onAction(TxEditorAction.Kind(KINDS[it])) },
             )
             AmountDisplay(
-                state.amountText,
+                state.amountShown,
                 Modifier.then(
                     if (state.showKeypad) Modifier
                     else Modifier.clickable(role = Role.Button, onClickLabel = if (editKeypad) "Hide keypad" else "Change amount") { editKeypad = !editKeypad },

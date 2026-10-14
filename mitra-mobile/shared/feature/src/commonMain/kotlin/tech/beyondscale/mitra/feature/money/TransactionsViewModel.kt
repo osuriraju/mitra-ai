@@ -146,26 +146,27 @@ class TransactionsViewModel(private val money: MoneyRepository, clock: AppClock)
 
     private fun build(d: Data, today: String, l: Local): TransactionsUiState {
         val month = if (l.month == FOLLOW_CURRENT) monthKey(today) else l.month
-        val filter = TxFilter(month = month, categoryId = l.categoryId, accountId = l.accountId, kind = l.kind, query = l.query)
-        val list = filterTransactions(d.transactions, filter, l.sort)
-        val n = list.size
+        // A deleted (or archived) category/account stops filtering, so the chip never reads "All …" over an empty list.
         val category = d.categories.firstOrNull { it.id == l.categoryId }
         val account = d.accounts.firstOrNull { it.id == l.accountId }
+        val filter = TxFilter(month = month, categoryId = category?.id, accountId = account?.id, kind = l.kind, query = l.query)
+        val list = filterTransactions(d.transactions, filter, l.sort)
+        val n = list.size
         return TransactionsUiState(
             loaded = true,
             month = month,
             monthLabel = month?.let(::monthTitle) ?: "All time",
             monthOptions = listOf(TxFilterOption(null, "All time")) + monthsWithData(d.transactions, today).map { TxFilterOption(it, monthTitle(it)) },
-            categoryId = l.categoryId,
+            categoryId = category?.id,
             categoryLabel = category?.let { "${it.emoji} ${it.name}" } ?: "All categories",
             categoryOptions = listOf(TxFilterOption(null, "All categories")) + d.categories.map { TxFilterOption(it.id, "${it.emoji} ${it.name}") },
-            accountId = l.accountId,
+            accountId = account?.id,
             accountLabel = account?.let { "${it.name} ${it.mask}".trim() } ?: "All accounts",
             accountOptions = listOf(TxFilterOption(null, "All accounts")) + d.accounts.map { TxFilterOption(it.id, "${it.name} ${it.mask}".trim()) },
             kind = l.kind,
             kindLabel = l.kind?.let(::kindName) ?: "All types",
             query = l.query,
-            showClear = l.categoryId != null || l.accountId != null || l.kind != null || l.query.isNotEmpty(),
+            showClear = category != null || account != null || l.kind != null || l.query.isNotEmpty(),
             summary = "$n transaction${if (n == 1) "" else "s"} · spent ${inrPaise(spent(list))} · income ${inrPaise(income(list))}",
             sortLabel = if (l.sort == TxSort.Date) "Sort by amount" else "Sort by date",
             groups = groupTransactions(list, today).map { g ->
