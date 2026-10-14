@@ -174,7 +174,11 @@ class JournalViewModel(
         )
     }
 
+    // A second tap while the first save is still writing would not see the new note yet and create a duplicate entry.
+    private var saving = false
+
     private fun save() {
+        if (saving) return
         val s = state.value
         val l = local.value
         val body = s.text.trim()
@@ -184,7 +188,9 @@ class JournalViewModel(
         }
         val date = s.day
         val mood = s.mood
+        saving = true
         viewModelScope.launch {
+          try {
             val entry = notes.notes.first().let { journalFor(it, date) }
             if (entry != null) {
                 notes.update(
@@ -201,6 +207,9 @@ class JournalViewModel(
             if (mood != null) wellness.saveEntry(date, listOf(WellnessChange.Mood(mood)))
             local.update { it.copy(text = null, draft = null, kept = false, mood = null) }
             queue.send(UiEvent.Snack("Journal saved"))
+          } finally {
+            saving = false
+          }
         }
     }
 
