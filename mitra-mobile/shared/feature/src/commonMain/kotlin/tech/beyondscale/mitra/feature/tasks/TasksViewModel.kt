@@ -23,9 +23,11 @@ import tech.beyondscale.mitra.domain.model.Task
 import tech.beyondscale.mitra.domain.model.TaskChange
 import tech.beyondscale.mitra.domain.model.TaskDraft
 import tech.beyondscale.mitra.domain.repository.TasksRepository
+import tech.beyondscale.mitra.domain.tasks.Completion
 import tech.beyondscale.mitra.domain.tasks.TaskCounts
 import tech.beyondscale.mitra.domain.tasks.TaskFilters
 import tech.beyondscale.mitra.domain.tasks.applyFilters
+import tech.beyondscale.mitra.domain.tasks.complete
 import tech.beyondscale.mitra.domain.tasks.doneMin
 import tech.beyondscale.mitra.domain.tasks.doneToday
 import tech.beyondscale.mitra.domain.tasks.focusLine
@@ -37,15 +39,12 @@ import tech.beyondscale.mitra.domain.tasks.plannedMin
 import tech.beyondscale.mitra.domain.tasks.projectStats
 import tech.beyondscale.mitra.domain.tasks.taskCounts
 import tech.beyondscale.mitra.domain.tasks.todaySorted
+import tech.beyondscale.mitra.domain.tasks.undoCompletion
 import tech.beyondscale.mitra.domain.tasks.upcomingLabel
 import tech.beyondscale.mitra.feature.common.EventQueue
-import tech.beyondscale.mitra.feature.common.announce
-import tech.beyondscale.mitra.domain.tasks.Completion
-import tech.beyondscale.mitra.domain.tasks.complete
-import tech.beyondscale.mitra.domain.tasks.toggleCompletion
-import tech.beyondscale.mitra.domain.tasks.undoCompletion
 import tech.beyondscale.mitra.feature.common.HapticKind
 import tech.beyondscale.mitra.feature.common.UiEvent
+import tech.beyondscale.mitra.feature.common.toggleTask
 
 enum class TasksTab(val label: String) { Inbox("Inbox"), Today("Today"), Upcoming("Upcoming"), Projects("Projects") }
 
@@ -129,7 +128,7 @@ class TasksViewModel(private val tasks: TasksRepository, private val clock: AppC
             is TasksAction.SetFilters -> local.update { it.copy(filters = a.filters) }
             TasksAction.ToggleShowDone -> local.update { it.copy(showDone = !it.showDone) }
             is TasksAction.Toggle -> launch {
-                queue.announce(tasks.toggleCompletion(a.id)) { TasksAction.UndoComplete(it.id, it.spawnedId) }
+                queue.toggleTask(tasks, a.id) { TasksAction.UndoComplete(it.id, it.spawnedId) }
             }
             is TasksAction.UndoComplete -> launch { tasks.undoCompletion(a.id, a.spawnedId) }
             is TasksAction.Reschedule -> launch {

@@ -11,35 +11,34 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import tech.beyondscale.mitra.core.AppClock
+import tech.beyondscale.mitra.core.dayFlow
 import tech.beyondscale.mitra.core.fmtClock
 import tech.beyondscale.mitra.core.fmtLong
 import tech.beyondscale.mitra.core.greeting
 import tech.beyondscale.mitra.core.inrPaise
 import tech.beyondscale.mitra.core.inrShortPaise
-import tech.beyondscale.mitra.core.dayFlow
 import tech.beyondscale.mitra.core.localNow
-import tech.beyondscale.mitra.core.today
 import tech.beyondscale.mitra.core.minsToHm
-import tech.beyondscale.mitra.domain.model.SessionState
-import tech.beyondscale.mitra.domain.model.Project
-import tech.beyondscale.mitra.domain.model.Task
+import tech.beyondscale.mitra.core.monthKey
+import tech.beyondscale.mitra.core.today
 import tech.beyondscale.mitra.domain.model.Category
+import tech.beyondscale.mitra.domain.model.Project
 import tech.beyondscale.mitra.domain.model.Recurring
+import tech.beyondscale.mitra.domain.model.SessionState
 import tech.beyondscale.mitra.domain.model.Subscription
+import tech.beyondscale.mitra.domain.model.Task
 import tech.beyondscale.mitra.domain.model.Transaction
 import tech.beyondscale.mitra.domain.money.budgetPct
 import tech.beyondscale.mitra.domain.money.daysLeftLabel
 import tech.beyondscale.mitra.domain.money.nextLabel
 import tech.beyondscale.mitra.domain.money.remainingTitle
 import tech.beyondscale.mitra.domain.money.safeLabel
+import tech.beyondscale.mitra.domain.money.spent
 import tech.beyondscale.mitra.domain.money.spentToday
 import tech.beyondscale.mitra.domain.money.thisMonth
-import tech.beyondscale.mitra.domain.money.spent
 import tech.beyondscale.mitra.domain.money.todayMoney
-import tech.beyondscale.mitra.domain.repository.MoneyRepository
-import tech.beyondscale.mitra.core.monthKey
-import kotlin.math.abs
 import tech.beyondscale.mitra.domain.repository.AuthRepository
+import tech.beyondscale.mitra.domain.repository.MoneyRepository
 import tech.beyondscale.mitra.domain.repository.TasksRepository
 import tech.beyondscale.mitra.domain.tasks.doneMin
 import tech.beyondscale.mitra.domain.tasks.doneToday
@@ -47,13 +46,13 @@ import tech.beyondscale.mitra.domain.tasks.isOverdue
 import tech.beyondscale.mitra.domain.tasks.openToday
 import tech.beyondscale.mitra.domain.tasks.plannedMin
 import tech.beyondscale.mitra.domain.tasks.priorityTasks
-import tech.beyondscale.mitra.feature.common.EventQueue
-import tech.beyondscale.mitra.feature.common.announce
-import tech.beyondscale.mitra.domain.tasks.toggleCompletion
 import tech.beyondscale.mitra.domain.tasks.undoCompletion
+import tech.beyondscale.mitra.feature.common.EventQueue
 import tech.beyondscale.mitra.feature.common.UiEvent
+import tech.beyondscale.mitra.feature.common.toggleTask
 import tech.beyondscale.mitra.feature.tasks.TaskRowUi
 import tech.beyondscale.mitra.feature.tasks.taskRowUi
+import kotlin.math.abs
 
 enum class StatTarget { Tasks, Money }
 
@@ -124,7 +123,7 @@ class TodayViewModel(
     fun onAction(a: TodayAction) {
         when (a) {
             is TodayAction.Toggle -> viewModelScope.launch {
-                queue.announce(tasks.toggleCompletion(a.id)) { TodayAction.UndoComplete(it.id, it.spawnedId) }
+                queue.toggleTask(tasks, a.id) { TodayAction.UndoComplete(it.id, it.spawnedId) }
             }
             is TodayAction.UndoComplete -> viewModelScope.launch { tasks.undoCompletion(a.id, a.spawned) }
             TodayAction.AddExpense, TodayAction.OpenBudgets -> Unit // handled by the shell (EventEffect → navigation)

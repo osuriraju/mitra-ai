@@ -19,11 +19,10 @@ import tech.beyondscale.mitra.domain.model.Task
 import tech.beyondscale.mitra.domain.model.TaskChange
 import tech.beyondscale.mitra.domain.repository.TasksRepository
 import tech.beyondscale.mitra.domain.tasks.projectStats
-import tech.beyondscale.mitra.feature.common.EventQueue
-import tech.beyondscale.mitra.feature.common.announce
-import tech.beyondscale.mitra.domain.tasks.toggleCompletion
 import tech.beyondscale.mitra.domain.tasks.undoCompletion
+import tech.beyondscale.mitra.feature.common.EventQueue
 import tech.beyondscale.mitra.feature.common.UiEvent
+import tech.beyondscale.mitra.feature.common.toggleTask
 
 data class ProjectDetailUiState(
     /** False until the first database read, so "not found" never flashes. */
@@ -64,7 +63,7 @@ class ProjectDetailViewModel(private val id: String, private val tasks: TasksRep
     fun onAction(a: ProjectDetailAction) {
         when (a) {
             is ProjectDetailAction.Toggle -> launch {
-                queue.announce(tasks.toggleCompletion(a.id)) { ProjectDetailAction.UndoComplete(it.id, it.spawnedId) }
+                queue.toggleTask(tasks, a.id) { ProjectDetailAction.UndoComplete(it.id, it.spawnedId) }
             }
             is ProjectDetailAction.UndoComplete -> launch { tasks.undoCompletion(a.id, a.spawned) }
             is ProjectDetailAction.Reschedule -> launch {

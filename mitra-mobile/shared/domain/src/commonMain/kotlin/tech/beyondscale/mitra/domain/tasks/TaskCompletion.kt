@@ -15,13 +15,17 @@ sealed interface Completion {
 
 private suspend fun TasksRepository.find(id: String): Task? = tasks.first().firstOrNull { it.id == id }
 
-/** A task row's check: reopens a done task, completes an open one. */
-suspend fun TasksRepository.toggleCompletion(id: String): Completion {
+/**
+ * A task row's check: reopens a done task, completes an open one. [onCompleting] runs only when completing, before
+ * the write (instant tap feedback such as a haptic).
+ */
+suspend fun TasksRepository.toggleCompletion(id: String, onCompleting: () -> Unit = {}): Completion {
     val t = find(id) ?: return Completion.NotFound
     if (t.done) {
         setDone(id, false)
         return Completion.Reopened(t)
     }
+    onCompleting()
     return Completion.Completed(t, setDone(id, true))
 }
 

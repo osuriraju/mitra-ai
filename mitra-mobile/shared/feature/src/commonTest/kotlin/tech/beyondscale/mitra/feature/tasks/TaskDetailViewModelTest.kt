@@ -125,6 +125,24 @@ class TaskDetailViewModelTest : ViewModelTest() {
         assertEquals(listOf("done:t1:true", "done:t1:false", "delete:next1"), repo.calls)
     }
 
+    @Test fun reopeningTheTaskItselfOffersMarkedAsOpen() = runTest {
+        val repo = FakeTasksRepository(listOf(task.copy(done = true, status = TaskStatus.Done, completedAt = "2026-10-13")))
+        val h = start(repo)
+        h.vm.onAction(TaskDetailAction.ToggleDone)
+        runCurrent()
+        assertEquals(listOf<UiEvent<TaskDetailAction>>(UiEvent.Snack("Marked as open", TaskDetailAction.SetStatus(TaskStatus.Done))), h.events)
+        assertEquals(listOf("done:t1:false"), repo.calls)
+    }
+
+    @Test fun reopeningAChildEmitsNothing() = runTest {
+        val repo = FakeTasksRepository(listOf(task, child, child2))
+        val h = start(repo)
+        h.vm.onAction(TaskDetailAction.ToggleChild("c1"))
+        runCurrent()
+        assertTrue(h.events.isEmpty())
+        assertEquals(listOf("done:c1:false"), repo.calls)
+    }
+
     @Test fun rescheduleNextMonday() = runTest {
         val repo = FakeTasksRepository(listOf(task))
         val h = start(repo)

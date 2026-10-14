@@ -34,16 +34,15 @@ import tech.beyondscale.mitra.domain.model.TaskChange
 import tech.beyondscale.mitra.domain.model.TaskDraft
 import tech.beyondscale.mitra.domain.model.TaskStatus
 import tech.beyondscale.mitra.domain.repository.TasksRepository
+import tech.beyondscale.mitra.domain.tasks.Completion
 import tech.beyondscale.mitra.domain.tasks.SubProgress
 import tech.beyondscale.mitra.domain.tasks.children
 import tech.beyondscale.mitra.domain.tasks.isOverdue
 import tech.beyondscale.mitra.domain.tasks.subProgress
-import tech.beyondscale.mitra.feature.common.EventQueue
-import tech.beyondscale.mitra.feature.common.announce
-import tech.beyondscale.mitra.domain.tasks.Completion
-import tech.beyondscale.mitra.domain.tasks.toggleCompletion
 import tech.beyondscale.mitra.domain.tasks.undoCompletion
+import tech.beyondscale.mitra.feature.common.EventQueue
 import tech.beyondscale.mitra.feature.common.UiEvent
+import tech.beyondscale.mitra.feature.common.toggleTask
 import kotlin.time.Instant
 
 data class ParentUi(val id: String, val title: String, val progress: String)
@@ -229,9 +228,8 @@ class TaskDetailViewModel(
     private fun sameNotes(stored: String?, draft: String) = (stored ?: "").trim() == draft.trim()
 
     private suspend fun toggle(taskId: String, self: Boolean) {
-        val c = tasks.toggleCompletion(taskId)
+        val c = queue.toggleTask(tasks, taskId) { TaskDetailAction.UndoComplete(it.id, it.spawnedId) }
         if (c is Completion.Reopened && self) queue.send(UiEvent.Snack("Marked as open", TaskDetailAction.SetStatus(TaskStatus.Done)))
-        queue.announce(c) { TaskDetailAction.UndoComplete(it.id, it.spawnedId) }
     }
 
     private fun build(all: List<Task>, projects: List<Project>, today: String, draft: String?): TaskDetailUiState {

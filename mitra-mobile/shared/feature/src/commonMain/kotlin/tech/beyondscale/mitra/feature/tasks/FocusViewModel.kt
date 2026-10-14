@@ -24,9 +24,9 @@ import tech.beyondscale.mitra.domain.model.Settings
 import tech.beyondscale.mitra.domain.model.Task
 import tech.beyondscale.mitra.domain.repository.AuthRepository
 import tech.beyondscale.mitra.domain.repository.TasksRepository
+import tech.beyondscale.mitra.domain.tasks.complete
 import tech.beyondscale.mitra.domain.tasks.focusQueue
 import tech.beyondscale.mitra.feature.common.EventQueue
-import tech.beyondscale.mitra.domain.tasks.complete
 import tech.beyondscale.mitra.feature.common.HapticKind
 import tech.beyondscale.mitra.feature.common.UiEvent
 import kotlin.math.roundToInt

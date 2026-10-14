@@ -34,6 +34,18 @@ class TaskCompletionTest {
         assertEquals(listOf("done:t1:false"), repo.calls)
     }
 
+    @Test fun onCompletingRunsBeforeTheWriteOnlyWhenCompleting() = runTest {
+        val repo = FakeTasksRepository(listOf(open), today = TODAY)
+        repo.toggleCompletion("t1") { repo.calls += "onCompleting" }
+        assertEquals(listOf("onCompleting", "done:t1:true"), repo.calls)
+        repo.calls.clear()
+        repo.toggleCompletion("t1") { repo.calls += "onCompleting" } // now done → reopen
+        assertEquals(listOf("done:t1:false"), repo.calls)
+        repo.calls.clear()
+        repo.toggleCompletion("nope") { repo.calls += "onCompleting" }
+        assertTrue(repo.calls.isEmpty())
+    }
+
     @Test fun unknownIdIsNotFound() = runTest {
         val repo = FakeTasksRepository(listOf(open), today = TODAY)
         assertEquals(Completion.NotFound, repo.toggleCompletion("nope"))
