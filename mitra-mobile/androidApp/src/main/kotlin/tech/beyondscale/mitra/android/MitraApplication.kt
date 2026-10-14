@@ -8,6 +8,7 @@ import org.koin.android.ext.android.get
 import org.koin.android.ext.koin.androidContext
 import org.koin.core.context.startKoin
 import org.koin.dsl.module
+import tech.beyondscale.mitra.android.notify.ReminderReceiver
 import tech.beyondscale.mitra.android.widget.WidgetUpdater
 import tech.beyondscale.mitra.app.appModules
 import tech.beyondscale.mitra.core.MitraLog
@@ -39,6 +40,9 @@ class MitraApplication : Application() {
         }
         // Home-screen widgets: redraw on data / session / theme changes and at local midnight.
         WidgetUpdater(this, get(), get(), get(), get(), get(), get<AppScope>().scope).start()
+        // Local reminders: re-armed on every data / settings / sign-in change.
+        ReminderReceiver.ensureChannels(this)
+        ReminderReceiver.scheduler(this).start()
         // Network back → flush queued changes right away.
         getSystemService(ConnectivityManager::class.java).registerDefaultNetworkCallback(object : ConnectivityManager.NetworkCallback() {
             override fun onAvailable(network: Network) { get<SyncController>().requestSync() }

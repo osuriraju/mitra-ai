@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Notification small icon: the launcher's "M" mark, white on transparent (the system tints it). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="44"
+    android:viewportHeight="44">
+    <group android:translateX="-32" android:translateY="-32">
+        <path
+            android:fillColor="#FFFFFFFF"
+            android:pathData="M36,71L36,37L44.5,37L54,52L63.5,37L72,37L72,71L64,71L64,51L56.5,62.5L51.5,62.5L44,51L44,71Z" />
+    </group>
+</vector>
