@@ -1,0 +1,66 @@
+-- v3 (Phase 3 Money) → v4 (Phase 4 Habits + Goals)
+CREATE TABLE habits (
+  id TEXT NOT NULL PRIMARY KEY,
+  name TEXT NOT NULL,
+  type TEXT NOT NULL,
+  target INTEGER NOT NULL,
+  unit TEXT NOT NULL,
+  icon TEXT NOT NULL,
+  timeOfDay TEXT NOT NULL,
+  days TEXT NOT NULL,
+  reminder TEXT,
+  goalId TEXT,
+  gentle INTEGER NOT NULL,
+  archived INTEGER NOT NULL,
+  createdAt TEXT NOT NULL,
+  position INTEGER NOT NULL
+);
+
+CREATE TABLE habit_logs (
+  habitId TEXT NOT NULL,
+  date TEXT NOT NULL,
+  value INTEGER NOT NULL,
+  PRIMARY KEY (habitId, date)
+);
+
+CREATE TABLE goals (
+  id TEXT NOT NULL PRIMARY KEY,
+  name TEXT NOT NULL,
+  type TEXT NOT NULL,
+  term TEXT NOT NULL,
+  due TEXT NOT NULL,
+  startedOn TEXT NOT NULL,
+  current REAL NOT NULL,
+  target REAL NOT NULL,
+  unit TEXT NOT NULL,
+  formula TEXT,
+  nextAction TEXT NOT NULL,
+  reviewEvery TEXT NOT NULL,
+  reviewOn TEXT NOT NULL,
+  status TEXT NOT NULL,
+  notes TEXT NOT NULL,
+  createdAt TEXT NOT NULL,
+  position INTEGER NOT NULL
+);
+
+CREATE TABLE milestones (
+  id TEXT NOT NULL PRIMARY KEY,
+  goalId TEXT NOT NULL,
+  title TEXT NOT NULL,
+  target REAL,
+  targetDate TEXT,
+  reachedOn TEXT,
+  notes TEXT,
+  position INTEGER NOT NULL
+);
+
+CREATE INDEX milestones_goal ON milestones(goalId);
+
+CREATE TABLE goal_progress (
+  goalId TEXT NOT NULL,
+  position INTEGER NOT NULL,
+  date TEXT NOT NULL,
+  value REAL NOT NULL,
+  note TEXT,
+  PRIMARY KEY (goalId, position)
+);

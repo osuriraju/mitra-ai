@@ -1,0 +1,28 @@
+-- One row per habit per local day. The server returns the last 400 days; older local rows are kept.
+CREATE TABLE habit_logs (
+  habitId TEXT NOT NULL,
+  date TEXT NOT NULL,
+  value INTEGER NOT NULL,
+  PRIMARY KEY (habitId, date)
+);
+
+selectAll:
+SELECT * FROM habit_logs ORDER BY habitId, date;
+
+selectForHabit:
+SELECT * FROM habit_logs WHERE habitId = ? ORDER BY date;
+
+upsert:
+INSERT OR REPLACE INTO habit_logs VALUES ?;
+
+deleteOne:
+DELETE FROM habit_logs WHERE habitId = ? AND date = ?;
+
+deleteForHabit:
+DELETE FROM habit_logs WHERE habitId = ?;
+
+deleteForHabitOnOrAfter:
+DELETE FROM habit_logs WHERE habitId = ? AND date >= ?;
+
+deleteAll:
+DELETE FROM habit_logs;

@@ -5,6 +5,11 @@ import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runTest
 import tech.beyondscale.mitra.data.db.Accounts
 import tech.beyondscale.mitra.data.db.Categories
+import tech.beyondscale.mitra.data.db.Goal_progress
+import tech.beyondscale.mitra.data.db.Goals
+import tech.beyondscale.mitra.data.db.Habit_logs
+import tech.beyondscale.mitra.data.db.Habits
+import tech.beyondscale.mitra.data.db.Milestones
 import tech.beyondscale.mitra.data.db.MitraDb
 import tech.beyondscale.mitra.data.db.Recurring
 import tech.beyondscale.mitra.data.db.Subscriptions
@@ -61,5 +66,23 @@ class LocalStoreTest {
         assertEquals(0, db.transactionsQueries.selectIds().executeAsList().size)
         assertEquals(0, db.recurringQueries.selectIds().executeAsList().size)
         assertEquals(0, db.subscriptionsQueries.selectIds().executeAsList().size)
+    }
+
+    @Test fun clearUserDataRemovesHabitsAndGoals() {
+        db.habitsQueries.upsert(Habits("h1", "Read", "binary", 1, "", "book", "anytime", "1111111", null, null, 1, 0, "", 0))
+        db.habitLogsQueries.upsert(Habit_logs("h1", "2026-10-14", 1))
+        db.goalsQueries.upsert(
+            Goals("g1", "Save", "numeric", "Medium-term", "2027-03-31", "2026-10-01", 0.0, 100.0, "", null, "", "Monthly", "2026-11-01", "active", "", "", 0),
+        )
+        db.milestonesQueries.upsert(Milestones("m1", "g1", "Half", 50.0, null, null, null, 0))
+        db.goalProgressQueries.insert(Goal_progress("g1", 0, "2026-10-14", 10.0, null))
+
+        LocalData(db).clearUserData()
+
+        assertEquals(0, db.habitsQueries.selectIds().executeAsList().size)
+        assertEquals(0, db.habitLogsQueries.selectAll().executeAsList().size)
+        assertEquals(0, db.goalsQueries.selectIds().executeAsList().size)
+        assertEquals(0, db.milestonesQueries.selectAll().executeAsList().size)
+        assertEquals(0, db.goalProgressQueries.selectAll().executeAsList().size)
     }
 }

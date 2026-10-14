@@ -1,0 +1,21 @@
+-- A goal's progress log, ascending; position is the entry's index in the server's progressLog.
+CREATE TABLE goal_progress (
+  goalId TEXT NOT NULL,
+  position INTEGER NOT NULL,
+  date TEXT NOT NULL,
+  value REAL NOT NULL,
+  note TEXT,
+  PRIMARY KEY (goalId, position)
+);
+
+selectAll:
+SELECT * FROM goal_progress ORDER BY goalId, position;
+
+insert:
+INSERT INTO goal_progress VALUES ?;
+
+deleteForGoal:
+DELETE FROM goal_progress WHERE goalId = ?;
+
+deleteAll:
+DELETE FROM goal_progress;

@@ -16,6 +16,16 @@ object OutboxEntities {
     const val SUBSCRIPTION = "subscription"
     /** "Mark paid" action rows (`POST money/recurring/:id/pay`, `entityId` = the recurring id). */
     const val RECURRING_PAY = "recurring-pay"
+    /** Habit rows (create/patch/delete), `entityId` = the habit id. */
+    const val HABIT = "habit"
+    /** `PUT habits/:id/logs` rows, `entityId` = the habit id. */
+    const val HABIT_LOG = "habit-log"
+    /** Goal rows (create/patch/delete), `entityId` = the goal id. */
+    const val GOAL = "goal"
+    /** `POST goals/:id/progress` action rows, `entityId` = the goal id. */
+    const val GOAL_PROGRESS = "goal-progress"
+    /** Milestone add/patch/delete rows, `entityId` = the goal id (pending is decided per goal). */
+    const val MILESTONE = "milestone"
 }
 
 /**

@@ -1,0 +1,41 @@
+-- Goals in server order (createdAt asc). Numbers are plain doubles (whole rupees for a ₹ goal), never paise.
+CREATE TABLE goals (
+  id TEXT NOT NULL PRIMARY KEY,
+  name TEXT NOT NULL,
+  type TEXT NOT NULL,
+  term TEXT NOT NULL,
+  due TEXT NOT NULL,
+  startedOn TEXT NOT NULL,
+  current REAL NOT NULL,
+  target REAL NOT NULL,
+  unit TEXT NOT NULL,
+  formula TEXT,
+  nextAction TEXT NOT NULL,
+  reviewEvery TEXT NOT NULL,
+  reviewOn TEXT NOT NULL,
+  status TEXT NOT NULL,
+  notes TEXT NOT NULL,
+  createdAt TEXT NOT NULL,
+  position INTEGER NOT NULL
+);
+
+selectAll:
+SELECT * FROM goals ORDER BY position, id;
+
+selectById:
+SELECT * FROM goals WHERE id = ?;
+
+selectIds:
+SELECT id FROM goals;
+
+upsert:
+INSERT OR REPLACE INTO goals VALUES ?;
+
+nextPosition:
+SELECT COALESCE(MAX(position), -1) + 1 FROM goals;
+
+delete:
+DELETE FROM goals WHERE id = ?;
+
+deleteAll:
+DELETE FROM goals;

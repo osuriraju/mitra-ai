@@ -1,0 +1,38 @@
+-- Habits, including archived ones, in server order (createdAt asc). Days are a Mon..Sun "1111100" string.
+CREATE TABLE habits (
+  id TEXT NOT NULL PRIMARY KEY,
+  name TEXT NOT NULL,
+  type TEXT NOT NULL,
+  target INTEGER NOT NULL,
+  unit TEXT NOT NULL,
+  icon TEXT NOT NULL,
+  timeOfDay TEXT NOT NULL,
+  days TEXT NOT NULL,
+  reminder TEXT,
+  goalId TEXT,
+  gentle INTEGER NOT NULL,
+  archived INTEGER NOT NULL,
+  createdAt TEXT NOT NULL,
+  position INTEGER NOT NULL
+);
+
+selectAll:
+SELECT * FROM habits ORDER BY position, id;
+
+selectById:
+SELECT * FROM habits WHERE id = ?;
+
+selectIds:
+SELECT id FROM habits;
+
+upsert:
+INSERT OR REPLACE INTO habits VALUES ?;
+
+nextPosition:
+SELECT COALESCE(MAX(position), -1) + 1 FROM habits;
+
+delete:
+DELETE FROM habits WHERE id = ?;
+
+deleteAll:
+DELETE FROM habits;

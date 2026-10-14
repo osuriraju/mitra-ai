@@ -1,0 +1,31 @@
+-- A goal's milestones; position is the server order within the goal.
+CREATE TABLE milestones (
+  id TEXT NOT NULL PRIMARY KEY,
+  goalId TEXT NOT NULL,
+  title TEXT NOT NULL,
+  target REAL,
+  targetDate TEXT,
+  reachedOn TEXT,
+  notes TEXT,
+  position INTEGER NOT NULL
+);
+
+CREATE INDEX milestones_goal ON milestones(goalId);
+
+selectAll:
+SELECT * FROM milestones ORDER BY goalId, position;
+
+selectForGoal:
+SELECT * FROM milestones WHERE goalId = ? ORDER BY position;
+
+upsert:
+INSERT OR REPLACE INTO milestones VALUES ?;
+
+delete:
+DELETE FROM milestones WHERE id = ?;
+
+deleteForGoal:
+DELETE FROM milestones WHERE goalId = ?;
+
+deleteAll:
+DELETE FROM milestones;
