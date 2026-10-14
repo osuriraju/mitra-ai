@@ -229,4 +229,27 @@ class SyncEngineTest {
         engine.drain(); runCurrent() // nothing sent → no signal
         assertEquals(1, drainedSignals)
     }
+
+    @Test fun offlineTriesDoNotCountTowardsPoisoning() = runTest {
+        server.routes["PATCH /api/a"] = { json(errorJson("INTERNAL", "Something went wrong"), HttpStatusCode.InternalServerError) }
+        enqueue("a")
+        val engine = engine()
+        server.offline = true
+        assertEquals(SyncEngine.Result.Offline, engine.drain())
+        assertEquals(SyncEngine.Result.Offline, engine.drain())
+        server.offline = false
+        assertEquals(SyncEngine.Result.Retry, engine.drain()) // first server error: still queued
+        assertEquals(1L, pending().single().attempts)
+        assertEquals(0, rejections.size)
+    }
+
+    @Test fun proxyInternalErrorIsNeverDropped() = runTest {
+        // A 500 whose body isn't the API's error envelope (code "ERROR") comes from a proxy, not the app: an outage.
+        server.routes["PATCH /api/a"] = { json(errorJson("ERROR", "Internal Server Error"), HttpStatusCode.InternalServerError) }
+        enqueue("a")
+        val engine = engine()
+        repeat(5) { assertEquals(SyncEngine.Result.Retry, engine.drain()) }
+        assertEquals(1, pending().size)
+        assertEquals(0, rejections.size)
+    }
 }

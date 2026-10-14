@@ -39,7 +39,7 @@ fun interface SyncScheduler { fun scheduleRetry() }
 /** Per-entity reaction to a sent outbox row. Called only if the row was still queued when the answer came. */
 interface SyncHandler {
     suspend fun onSuccess(response: JsonElement?)
-    /** The server refused the write (4xx, or a repeated 500); the local copy should be restored from the server. */
+    /** The server refused the write (4xx, or a third `500 INTERNAL`); the local copy should be restored from the server. */
     suspend fun onRejected(error: AppError)
 }
 
@@ -114,7 +114,6 @@ class SyncEngine(
                 continue
             }
             _status.value = SyncStatus.Syncing(pending)
-            val attempt = entry.attempts + 1
 
             val body = try {
                 entry.body?.let { api.json.parseToJsonElement(it) }
@@ -132,9 +131,12 @@ class SyncEngine(
                 }
                 is Outcome.Err -> {
                     val e = r.error
-                    // A plain 500 from this API is an unhandled exception (e.g. a create resent after its first
-                    // response was lost hits the existing id). It will never succeed; don't block the queue on it.
-                    val poisoned = e is AppError.Server && e.status == 500 && attempt >= POISON_ATTEMPTS
+                    // A plain `500 INTERNAL` from this API is an unhandled exception (e.g. a create resent after its
+                    // first response was lost hits the existing id). It will never succeed; don't block the queue on
+                    // it. Only those answers count — offline tries, timeouts and 401s don't — and a 500 without the
+                    // API's envelope (code "ERROR", e.g. from a proxy) is an outage like 502–504, never dropped.
+                    val poisoned = e is AppError.Server && e.status == 500 && e.code == "INTERNAL" &&
+                        recordServerError(entry.id) >= POISON_SERVER_ERRORS
                     val transient = !poisoned &&
                         (e is AppError.Offline || (e is AppError.Server && (e.status >= 500 || e.status == 429)))
                     if (transient || e is AppError.Unauthenticated) {
@@ -158,6 +160,14 @@ class SyncEngine(
             }
         }
         return result
+    }
+
+    /** Counts one more `500 INTERNAL` for the row; returns its total (0 if the row is already gone). */
+    private suspend fun recordServerError(id: String): Long = withContext(io) {
+        db.transactionWithResult {
+            db.outboxQueries.recordServerError(id)
+            db.outboxQueries.serverErrors(id).executeAsOneOrNull() ?: 0L
+        }
     }
 
     /**
@@ -186,5 +196,5 @@ class SyncEngine(
         try { block() } catch (e: CancellationException) { throw e } catch (_: Exception) { }
     }
 
-    private companion object { const val POISON_ATTEMPTS = 3 }
+    private companion object { const val POISON_SERVER_ERRORS = 3 }
 }

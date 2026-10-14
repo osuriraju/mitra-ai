@@ -40,7 +40,15 @@ updateBody:
 UPDATE outbox SET body = ? WHERE id = ?;
 
 markInFlight:
-UPDATE outbox SET inFlight = 1, attempts = attempts + 1 WHERE id = ?;
+UPDATE outbox SET inFlight = 1 WHERE id = ?;
+
+-- `attempts` counts only the API's own `500 INTERNAL` answers (see SyncEngine's poison-row rule); offline tries,
+-- timeouts, 401s and app-kill resets must never count.
+recordServerError:
+UPDATE outbox SET attempts = attempts + 1 WHERE id = ?;
+
+serverErrors:
+SELECT attempts FROM outbox WHERE id = ?;
 
 clearInFlight:
 UPDATE outbox SET inFlight = 0 WHERE id = ?;
