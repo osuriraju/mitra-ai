@@ -17,3 +17,6 @@ object SystemClock : AppClock {
 }
 
 fun AppClock.localNow(): LocalDateTime = now().toLocalDateTime(zone)
+
+/** The device's local date as ISO ("2026-10-14") — what every "today" in the app means. */
+fun AppClock.today(): String = localNow().date.toString()

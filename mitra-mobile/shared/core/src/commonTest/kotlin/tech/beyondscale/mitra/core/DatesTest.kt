@@ -25,4 +25,41 @@ class DatesTest {
         assertEquals("Good afternoon", greeting(16))
         assertEquals("Good evening", greeting(17))
     }
+
+    @Test fun fmtDayIsRelativeToTheGivenToday() {
+        val today = "2026-10-14" // a Wednesday
+        assertEquals("Today", fmtDay("2026-10-14", today))
+        assertEquals("Tomorrow", fmtDay("2026-10-15", today))
+        assertEquals("Yesterday", fmtDay("2026-10-13", today))
+        assertEquals("Mon 19 Oct", fmtDay("2026-10-19", today))
+        assertEquals("Wed 14 Oct", fmtDay("2026-10-14", today, relative = false))
+    }
+
+    @Test fun fmtTimeMatchesWebAndToleratesJunk() {
+        assertEquals("5:00 PM", fmtTime("17:00"))
+        assertEquals("12:05 AM", fmtTime("00:05"))
+        assertEquals("", fmtTime(null))
+        assertEquals("", fmtTime("soon"))
+    }
+
+    @Test fun minsToHmMatchesWeb() {
+        assertEquals("0m", minsToHm(0))
+        assertEquals("45m", minsToHm(45))
+        assertEquals("1h", minsToHm(60))
+        assertEquals("1h 05m", minsToHm(65))
+        assertEquals("2h 30m", minsToHm(150))
+    }
+
+    @Test fun diffDaysAndDowMon() {
+        assertEquals(7, diffDays("2026-10-20", "2026-10-13"))
+        assertEquals(-1, diffDays("2026-10-12", "2026-10-13"))
+        assertEquals(1, dowMon("2026-10-13")) // Tuesday
+        assertEquals(6, dowMon("2026-10-18")) // Sunday
+    }
+
+    @Test fun addMonthsJsOverflowsLikeTheServer() {
+        assertEquals("2026-03-03", addMonthsJs("2026-01-31", 1)) // JS: 31 Feb → 3 Mar
+        assertEquals("2026-11-15", addMonthsJs("2026-10-15", 1))
+        assertEquals("2027-03-02", addMonthsJs("2026-11-30", 3))
+    }
 }
