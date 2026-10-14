@@ -71,7 +71,7 @@ fun MitraChip(
             },
         contentAlignment = Alignment.Center,
     ) {
-        Box(Modifier.padding(end = if (onRemove != null) 7.dp else 0.dp)) {
+        Box(Modifier.padding(end = if (onRemove != null) 7.dp else 0.dp), contentAlignment = Alignment.CenterStart) {
             Row(
                 Modifier.heightIn(min = 32.dp).clip(CircleShape).background(bg).border(1.dp, border, CircleShape)
                     .padding(start = 10.dp, end = if (onRemove != null) 27.dp else 10.dp),

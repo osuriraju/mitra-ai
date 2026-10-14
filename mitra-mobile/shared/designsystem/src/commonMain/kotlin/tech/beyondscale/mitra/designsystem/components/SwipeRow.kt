@@ -103,7 +103,7 @@ fun SwipeRow(
             Modifier
                 .semantics {
                     // Swipe is not discoverable with TalkBack/switch access: expose both actions.
-                    customActions = listOfNotNull(
+                    customActions = if (!enabled) emptyList() else listOfNotNull(
                         onSwipeRight?.let { CustomAccessibilityAction(rightLabel) { right?.invoke(); true } },
                         onSwipeLeft?.let { CustomAccessibilityAction(leftLabel) { left?.invoke(); true } },
                     )
