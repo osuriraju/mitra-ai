@@ -1,5 +1,6 @@
 package tech.beyondscale.mitra.app
 
+import kotlin.reflect.KClass
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
@@ -11,6 +12,18 @@ class ChromeTest {
         assertEquals(Chrome.Tab, chromeFor(TodayDest::class))
         assertEquals(Chrome.TabOwnBar, chromeFor(TasksDest::class))
         assertEquals(Chrome.Tab, chromeFor(null))
+    }
+
+    /** What MainShell does: resolve the chrome from the current destination's `hasRoute`. */
+    @Test fun resolvesChromeFromTheCurrentDestination() {
+        fun at(route: KClass<*>) = chromeForDestination { it == route }
+        assertEquals(Chrome.TabOwnBar, at(TasksDest::class))
+        assertEquals(Chrome.Detail, at(TaskDetailDest::class))
+        assertEquals(Chrome.Detail, at(ProjectDetailDest::class))
+        assertEquals(Chrome.Fullscreen, at(FocusDest::class))
+        assertEquals(Chrome.Tab, at(TodayDest::class))
+        assertEquals(Chrome.Tab, at(SettingsDest::class))
+        assertEquals(Chrome.Tab, chromeForDestination { false })
     }
 
     @Test fun shellViewModelsAreKeyedPerAccount() {

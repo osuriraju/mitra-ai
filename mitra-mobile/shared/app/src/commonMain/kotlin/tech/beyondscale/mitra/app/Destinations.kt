@@ -28,6 +28,12 @@ import kotlin.reflect.KClass
  */
 internal enum class Chrome { Tab, TabOwnBar, Detail, Fullscreen }
 
+/** Every route whose chrome isn't [Chrome.Tab]; [chromeForDestination] checks only these. */
+private val NON_TAB_ROUTES = listOf(TasksDest::class, TaskDetailDest::class, ProjectDetailDest::class, FocusDest::class)
+
+/** The chrome for the current destination, given its `hasRoute` check (how MainShell resolves it). */
+internal fun chromeForDestination(hasRoute: (KClass<*>) -> Boolean): Chrome = chromeFor(NON_TAB_ROUTES.firstOrNull(hasRoute))
+
 internal fun chromeFor(route: KClass<*>?): Chrome = when (route) {
     TaskDetailDest::class, ProjectDetailDest::class -> Chrome.Detail
     FocusDest::class -> Chrome.Fullscreen

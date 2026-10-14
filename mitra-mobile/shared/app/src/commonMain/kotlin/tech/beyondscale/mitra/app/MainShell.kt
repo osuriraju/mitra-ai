@@ -102,9 +102,6 @@ private val AI = Dest("AI", MitraIcons.Sparkles, AiDest)
 private val SETTINGS = Dest("Settings", MitraIcons.Settings, SettingsDest)
 private val MORE = Dest("More", MitraIcons.Grid, Unit)
 
-/** Routes whose chrome differs from a tab's. */
-private val CHROME_ROUTES = listOf(TaskDetailDest::class, ProjectDetailDest::class, FocusDest::class)
-
 /** Bottom-bar tabs and More-sheet entries allowed for the enabled [modules]. */
 internal fun destinationsFor(modules: Modules): Pair<List<Dest>, List<Dest>> {
     val tabs = listOf(TODAY, TASKS, if (modules.money) MONEY else HABITS)
@@ -142,7 +139,7 @@ internal fun MainShell(user: User, sync: SyncStatus, messages: Flow<String>) {
     val (tabs, more) = remember(modules) { destinationsFor(modules) }
     val entry by nav.currentBackStackEntryAsState()
     val destination = entry?.destination
-    val chrome = chromeFor(CHROME_ROUTES.firstOrNull { k -> destination?.hasRoute(k) == true })
+    val chrome = chromeForDestination { k -> destination?.hasRoute(k) == true }
     // Task and project detail and Focus all live under Tasks.
     val current = if (isDetail(chrome)) TASKS
     else (tabs + more).firstOrNull { d -> destination?.hierarchy?.any { it.hasRoute(d.route::class) } == true }
