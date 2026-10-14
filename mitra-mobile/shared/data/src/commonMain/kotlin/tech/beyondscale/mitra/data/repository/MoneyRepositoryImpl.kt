@@ -16,6 +16,9 @@ import kotlinx.serialization.KSerializer
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import tech.beyondscale.mitra.core.AppClock
 import tech.beyondscale.mitra.core.AppError
@@ -94,7 +97,7 @@ class MoneyRepositoryImpl(
                     // Deleted locally while the write was in flight: don't resurrect it. Balances already moved locally
                     // when the write was made; the echo never moves them again.
                     if (db.transactionsQueries.selectById(dto.id).executeAsOneOrNull() != null) {
-                        db.transactionsQueries.upsert(dto.toDomain().toRow())
+                        db.transactionsQueries.upsert(dto.toDomain().scrubbed(deletedRefs()).toRow())
                     }
                 }
             }
@@ -123,7 +126,7 @@ class MoneyRepositoryImpl(
                 val dto = decode(SubscriptionDto.serializer(), response) ?: return
                 applyEcho(SUBSCRIPTION, dto.id) {
                     if (db.subscriptionsQueries.selectById(dto.id).executeAsOneOrNull() != null) {
-                        db.subscriptionsQueries.upsert(dto.toDomain().toRow())
+                        db.subscriptionsQueries.upsert(dto.toDomain().scrubbed(deletedRefs()).toRow())
                     }
                 }
             }
@@ -135,12 +138,13 @@ class MoneyRepositoryImpl(
                 writes.update { it + 1 }
                 withContext(io) {
                     db.transaction {
-                        val tx = dto.transaction
+                        val tx = dto.transaction.toDomain().scrubbed(deletedRefs())
                         val local = selectTransaction(tx.id)
-                        // Never resurrect, never move balances (moved when it was paid). The server stamps the time with
-                        // its own clock; the device's local time is kept.
-                        if (local != null && tx.id !in pendingIds(TRANSACTION)) {
-                            db.transactionsQueries.upsert(tx.toDomain().copy(time = local.time).toRow())
+                        // A queued edit or DELETE of the payment wins (no resurrection). Balances never move here: they
+                        // moved when it was paid. The server stamps the time with its own clock; the local one is kept.
+                        // A missing local copy with nothing queued for it is taken as is.
+                        if (tx.id !in pendingIds(TRANSACTION)) {
+                            db.transactionsQueries.upsert((if (local != null) tx.copy(time = local.time) else tx).toRow())
                         }
                         if (dto.recurring.id !in pendingIds(RECURRING) + pendingIds(RECURRING_PAY)) echoRecurring(dto.recurring)
                     }
@@ -181,8 +185,10 @@ class MoneyRepositoryImpl(
 
     /** Upsert everything the server has, delete what it no longer has — except records with queued changes. */
     private fun applyBootstrap(body: MoneyBootstrapDto, today: String) {
-        val pendingTx = pendingIds(TRANSACTION)
         val pendingPay = pendingIds(RECURRING_PAY)
+        // A queued "Mark paid" is keyed by its bill; the transaction it created is just as pending.
+        val pendingTx = pendingIds(TRANSACTION) + pendingPayTransactionIds()
+        val deleted = deletedRefs()
         val pendingCategories = pendingIds(CATEGORY)
         val pendingRecurring = pendingIds(RECURRING) + pendingPay
         val pendingSubscriptions = pendingIds(SUBSCRIPTION)
@@ -191,13 +197,10 @@ class MoneyRepositoryImpl(
         // payments, so while any is queued the local balance (which has them) is kept.
         val keepBalances = pendingTx.isNotEmpty() || pendingPay.isNotEmpty()
         val serverAccounts = body.accounts.map { it.id }.toSet()
-        // An account the server no longer lists (archived on the web) stays while queued writes may still use it, so
-        // a pending transaction never points at an account the device has dropped; the next refresh removes it.
-        val stillUsed = if (keepBalances) {
-            db.transactionsQueries.selectAll().executeAsList().flatMap { listOfNotNull(it.accountId, it.toAccountId) }.toSet()
-        } else {
-            emptySet()
-        }
+        // An account the server no longer lists (archived on the web) stays while a queued transaction or payment
+        // uses it, so a pending transaction never points at an account the device has dropped; a later refresh
+        // removes it.
+        val stillUsed = pendingTx.mapNotNull { selectTransaction(it) }.flatMap { listOfNotNull(it.accountId, it.toAccountId) }.toSet()
         db.accountsQueries.selectIds().executeAsList().filter { it !in serverAccounts && it !in stillUsed }.forEach { db.accountsQueries.delete(it) }
         body.accounts.forEachIndexed { i, dto ->
             val server = dto.toDomain()
@@ -218,10 +221,8 @@ class MoneyRepositoryImpl(
         // row the server does send is taken (e.g. an old one whose date was moved into the window on the web).
         val windowStart = addDays(addMonthsJs(today, -12), WINDOW_MARGIN_DAYS)
         val inWindow = db.transactionsQueries.selectIdsOnOrAfter(windowStart).executeAsList().toSet()
-        // A category whose DELETE is still queued: the server uncategorises its transactions once it lands; do so now.
-        val deletedCategories = pendingCategories - db.categoriesQueries.selectIds().executeAsList().toSet()
-        val incoming = body.transactions.map { it.toDomain() }
-            .map { if (it.categoryId != null && it.categoryId in deletedCategories) it.copy(categoryId = null) else it }
+        // A category (bill) whose DELETE is still queued: the server unlinks its transactions once it lands; do so now.
+        val incoming = body.transactions.map { it.toDomain().scrubbed(deleted) }
         val serverTx = incoming.map { it.id }.toSet()
         inWindow.filter { it !in serverTx && it !in pendingTx }.forEach { db.transactionsQueries.delete(it) }
         incoming.filter { it.id !in pendingTx }.forEach { db.transactionsQueries.upsert(it.toRow()) }
@@ -230,13 +231,13 @@ class MoneyRepositoryImpl(
         val serverRecurring = body.recurring.map { it.id }.toSet()
         db.recurringQueries.selectIds().executeAsList().filter { it !in serverRecurring && it !in pendingRecurring }
             .forEach { db.recurringQueries.delete(it) }
-        body.recurring.filter { it.id !in pendingRecurring }.forEach { db.recurringQueries.upsert(it.toDomain().toRow()) }
+        body.recurring.filter { it.id !in pendingRecurring }.forEach { db.recurringQueries.upsert(it.toDomain().scrubbed(deleted).toRow()) }
 
         // Subscriptions.
         val serverSubscriptions = body.subscriptions.map { it.id }.toSet()
         db.subscriptionsQueries.selectIds().executeAsList().filter { it !in serverSubscriptions && it !in pendingSubscriptions }
             .forEach { db.subscriptionsQueries.delete(it) }
-        body.subscriptions.filter { it.id !in pendingSubscriptions }.forEach { db.subscriptionsQueries.upsert(it.toDomain().toRow()) }
+        body.subscriptions.filter { it.id !in pendingSubscriptions }.forEach { db.subscriptionsQueries.upsert(it.toDomain().scrubbed(deleted).toRow()) }
     }
 
     /* ---------- transaction writes ---------- */
@@ -426,7 +427,7 @@ class MoneyRepositoryImpl(
 
     /** Echo of a recurring row: never resurrects one deleted locally. Call inside a transaction. */
     private fun echoRecurring(dto: RecurringDto) {
-        if (selectRecurring(dto.id) != null) db.recurringQueries.upsert(dto.toDomain().toRow())
+        if (selectRecurring(dto.id) != null) db.recurringQueries.upsert(dto.toDomain().scrubbed(deletedRefs()).toRow())
     }
 
     private fun selectTransaction(id: String): Transaction? = db.transactionsQueries.selectById(id).executeAsOneOrNull()?.toDomain()
@@ -437,6 +438,28 @@ class MoneyRepositoryImpl(
         db.applyEffects(balanceEffects(tx), 1)
         outbox.enqueue(TRANSACTION, "POST", "money/transactions", tx.createBody(), entityId = tx.id)
     }
+
+    /** Ids of the transactions created by queued "Mark paid" rows (whose `entityId` is the bill). */
+    private fun pendingPayTransactionIds(): Set<String> = db.outboxQueries.selectAll().executeAsList()
+        .filter { it.entity == RECURRING_PAY }
+        .mapNotNull { row ->
+            row.body?.let { runCatching { api.json.parseToJsonElement(it).jsonObject["id"]?.jsonPrimitive?.contentOrNull }.getOrNull() }
+        }
+        .toSet()
+
+    /** Categories and bills deleted locally whose DELETE is still queued. */
+    private class DeletedRefs(val categories: Set<String>, val recurring: Set<String>)
+
+    private fun deletedRefs() = DeletedRefs(
+        categories = pendingIds(CATEGORY) - db.categoriesQueries.selectIds().executeAsList().toSet(),
+        recurring = pendingIds(RECURRING) - db.recurringQueries.selectIds().executeAsList().toSet(),
+    )
+
+    /* Server copies never bring back a reference to a row whose DELETE is queued (the server nulls it once it lands). */
+    private fun Transaction.scrubbed(d: DeletedRefs) =
+        copy(categoryId = categoryId?.takeUnless { it in d.categories }, recurringId = recurringId?.takeUnless { it in d.recurring })
+    private fun Recurring.scrubbed(d: DeletedRefs) = copy(categoryId = categoryId?.takeUnless { it in d.categories })
+    private fun Subscription.scrubbed(d: DeletedRefs) = copy(categoryId = categoryId?.takeUnless { it in d.categories })
 
     private fun pendingIds(entity: String): Set<String> =
         db.outboxQueries.pendingEntityIds(entity).executeAsList().filter { it.isNotEmpty() }.toSet()

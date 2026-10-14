@@ -528,7 +528,7 @@ class MoneyRepositoryImplTest {
         seedAccount(0)
         seedRent()
         server.offline = true
-        e.repo.payRecurring(rentId)
+        val payTx = assertIs<PayResult.Paid>(e.repo.payRecurring(rentId)).transaction
         server.offline = false
         server.routes["GET /api/money/bootstrap"] = {
             json(bootstrap(emptyList()).replace(
@@ -539,6 +539,66 @@ class MoneyRepositoryImplTest {
         assertIs<Outcome.Ok<Unit>>(e.repo.refresh())
         assertEquals("2026-10-14", localRent().lastPaidOn)
         assertEquals(-1500000L, balance())
+        assertEquals(listOf(payTx.id), txIds()) // the payment's own transaction is pending too
+    }
+
+    @Test fun payEchoRestoresAMissingPaymentTransaction() = runTest {
+        val e = env()
+        seedAccount(0)
+        seedRent()
+        server.offline = true
+        val payTx = assertIs<PayResult.Paid>(e.repo.payRecurring(rentId)).transaction
+        db.transactionsQueries.delete(payTx.id) // lost locally, nothing queued for it
+        server.offline = false
+        server.routes["POST /api/money/recurring/$rentId/pay"] = {
+            json("""{"transaction":${txJson(payTx.id, "15000", date = "2026-10-14", categoryId = null)},"recurring":{"id":"$rentId","name":"Rent","emoji":"🏠","amount":15000,"day":5,"method":"UPI","kind":"bill","reminder":true,"lastPaidOn":"2026-10-14"}}""")
+        }
+        assertEquals(SyncEngine.Result.Drained, e.engine.drain())
+        assertEquals(listOf(payTx.id), txIds())
+        assertEquals(-1500000L, balance()) // inserted without moving the balance again
+    }
+
+    @Test fun echoesDropReferencesToRowsWithQueuedDeletes() = runTest {
+        val e = env()
+        seedAccount(0)
+        seedCategory("c-food", "food")
+        server.offline = true
+        val tx = e.repo.addTransaction(expense(1000).copy(categoryId = "c-food"))
+        e.repo.deleteCategory("c-food")
+        assertNull(localTx(tx.id)!!.categoryId)
+        server.offline = false
+        // The transaction's POST lands before the category's DELETE: the server still has the category on it.
+        server.routes["POST /api/money/transactions"] = { json(txJson(tx.id, "10", date = "2026-10-14", categoryId = "c-food")) }
+        server.routes["DELETE /api/money/categories/c-food"] = { throw Exception("connection reset") }
+        e.engine.drain(scheduleRetryOnFailure = false)
+        assertNull(localTx(tx.id)!!.categoryId)
+
+        // A refresh before the DELETE lands: bills and subscriptions of that category come back uncategorised too.
+        server.routes["GET /api/money/bootstrap"] = {
+            json(bootstrap(listOf(txJson(tx.id, "10", date = "2026-10-14", categoryId = "c-food")), categories = listOf(categoryJson("food", "🍔"))).replace(
+                "\"recurring\":[],\"subscriptions\":[]",
+                """"recurring":[{"id":"$rentId","name":"Rent","emoji":"🏠","amount":15000,"day":5,"method":"UPI","kind":"bill","reminder":true,"categoryId":"c-food"}],"subscriptions":[{"id":"s1","name":"Zomato","amount":99,"cycle":"Monthly","next":"2026-11-01","color":"#6366F1","letter":"Z","categoryId":"c-food"}]""",
+            ))
+        }
+        assertIs<Outcome.Ok<Unit>>(e.repo.refresh())
+        assertNull(localTx(tx.id)!!.categoryId)
+        assertNull(localRent().categoryId)
+        assertNull(localSubscriptions().single().categoryId)
+    }
+
+    @Test fun refreshDropsAnUnlistedAccountOnlyQueuedWritesDontUse() = runTest {
+        val e = env()
+        seedAccount(0)
+        seedAccount(5000, id = bank)
+        db.transactionsQueries.upsert(Transaction("old-on-bank", TxKind.Expense, 1000, null, bank, null, "Shop", null, "2026-10-10", "10:00").toRow())
+        server.offline = true
+        e.repo.addTransaction(expense(1000)) // queued, on cash
+        server.offline = false
+        server.routes["GET /api/money/bootstrap"] = {
+            json(bootstrap(listOf(txJson("old-on-bank", "10").replace(cash, bank))))
+        }
+        assertIs<Outcome.Ok<Unit>>(e.repo.refresh())
+        assertEquals(listOf(cash), db.accountsQueries.selectIds().executeAsList())
     }
 
     /* ---------- subscriptions ---------- */
