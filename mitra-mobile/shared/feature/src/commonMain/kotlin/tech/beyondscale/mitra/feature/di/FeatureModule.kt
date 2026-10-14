@@ -10,6 +10,7 @@ import tech.beyondscale.mitra.feature.auth.ForgotPasswordViewModel
 import tech.beyondscale.mitra.feature.auth.LoginViewModel
 import tech.beyondscale.mitra.feature.auth.SignupViewModel
 import tech.beyondscale.mitra.feature.settings.SettingsViewModel
+import tech.beyondscale.mitra.feature.tasks.TasksViewModel
 import tech.beyondscale.mitra.feature.today.TodayViewModel
 
 val featureModule = module {
@@ -21,4 +22,5 @@ val featureModule = module {
     viewModelOf(::ForgotPasswordViewModel)
     viewModelOf(::TodayViewModel)
     viewModelOf(::SettingsViewModel)
+    viewModelOf(::TasksViewModel)
 }
