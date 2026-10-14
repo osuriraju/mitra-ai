@@ -101,6 +101,7 @@ class TasksWidget : GlanceAppWidget(), KoinComponent {
 internal class WidgetPalette(
     val surface: ColorProvider, val text: ColorProvider, val muted: ColorProvider,
     val accent: ColorProvider, val danger: ColorProvider, val track: ColorProvider,
+    val warning: ColorProvider, val onAccent: ColorProvider,
 ) {
     companion object {
         fun of(mode: ThemeMode): WidgetPalette = when (mode) {
@@ -108,13 +109,17 @@ internal class WidgetPalette(
             ThemeMode.Light -> fixed(NoirLight)
             ThemeMode.Auto -> {
                 fun dn(pick: (MitraColors) -> androidx.compose.ui.graphics.Color) = DayNightColorProvider(day = pick(NoirLight), night = pick(NoirDark))
-                WidgetPalette(dn { it.surface }, dn { it.text }, dn { it.muted }, dn { it.accent }, dn { it.danger }, dn { it.track })
+                WidgetPalette(
+                    dn { it.surface }, dn { it.text }, dn { it.muted }, dn { it.accent }, dn { it.danger }, dn { it.track },
+                    dn { it.warning }, dn { it.onAccent },
+                )
             }
         }
 
         private fun fixed(c: MitraColors) = WidgetPalette(
             ColorProvider(c.surface), ColorProvider(c.text), ColorProvider(c.muted),
             ColorProvider(c.accent), ColorProvider(c.danger), ColorProvider(c.track),
+            ColorProvider(c.warning), ColorProvider(c.onAccent),
         )
     }
 }
@@ -138,11 +143,11 @@ private fun TasksWidgetContent(model: TasksWidgetModel, p: WidgetPalette) {
     }
 }
 
-private fun openApp(context: Context): Action =
+internal fun openApp(context: Context): Action =
     actionStartActivity(Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
 
 @Composable
-private fun Centered(text: String, p: WidgetPalette, onClick: Action) {
+internal fun Centered(text: String, p: WidgetPalette, onClick: Action) {
     Box(modifier = GlanceModifier.fillMaxSize().clickable(onClick), contentAlignment = Alignment.Center) {
         Text(text, style = TextStyle(color = p.text, fontSize = 14.sp, fontWeight = FontWeight.Medium))
     }

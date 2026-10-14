@@ -14,6 +14,8 @@ interface AuthRepository {
      * Readable without [restore] — the home-screen widget uses it in a process that never ran the app UI.
      */
     val hasLocalAccount: Flow<Boolean> get() = session.map { it is SessionState.SignedIn }
+    /** The user cached on this device (null once signed out); like [hasLocalAccount], readable without [restore]. */
+    val localUser: Flow<User?> get() = session.map { (it as? SessionState.SignedIn)?.user }
     /** On launch: show the cached user immediately (offline-first), then confirm with the server. */
     suspend fun restore()
     suspend fun refresh(): Outcome<User>

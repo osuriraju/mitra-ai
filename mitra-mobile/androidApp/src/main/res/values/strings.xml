@@ -11,4 +11,25 @@
     <string name="tasks_widget_complete">Complete %1$s</string>
     <string name="tasks_widget_open">Open %1$s</string>
     <string name="tasks_widget_open_overdue">Open %1$s, overdue</string>
+    <string name="money_widget_label">Mitra · Money</string>
+    <string name="money_widget_description">Safe to spend today, budget and next bill</string>
+    <string name="money_widget_safe_to_spend">Safe to spend</string>
+    <string name="money_widget_per_day">%1$s / day</string>
+    <string name="money_widget_safe_cd">Safe to spend %1$s per day. Open Money</string>
+    <string name="money_widget_safe_hidden_cd">Safe to spend per day, amount hidden. Open Money</string>
+    <string name="money_widget_line_hidden_cd">Spent this month and budget, amounts hidden</string>
+    <string name="money_widget_amount_hidden">amount hidden</string>
+    <string name="money_widget_spent_this_month">Spent this month</string>
+    <string name="money_widget_spent_cd">Spent this month %1$s. Open Money</string>
+    <string name="money_widget_spent_hidden_cd">Spent this month, amount hidden. Open Money</string>
+    <string name="money_widget_set_budget">Set budget</string>
+    <string name="money_widget_set_budget_cd">Set budget. Opens Budgets</string>
+    <string name="money_widget_add_expense">＋ Expense</string>
+    <string name="money_widget_add_expense_cd">Add expense</string>
+    <string name="money_widget_sign_in">Sign in to Mitra</string>
+    <string name="money_widget_off">Money is turned off. Open Mitra</string>
+    <string name="money_widget_config_title">Money widget</string>
+    <string name="money_widget_hide_amounts">Hide amounts</string>
+    <string name="money_widget_hide_amounts_sub">Shows ₹•••• instead of amounts on this widget.</string>
+    <string name="money_widget_config_done">Done</string>
 </resources>

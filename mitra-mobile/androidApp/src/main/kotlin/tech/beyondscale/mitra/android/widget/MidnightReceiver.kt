@@ -17,7 +17,7 @@ import tech.beyondscale.mitra.data.di.AppScope
 /**
  * Redraws the widget when the local date rolls over (or the clock / time zone changes) even if the app process is
  * not running, then arms the next midnight. Inexact RTC alarm: no exact-alarm permission, no device wake-up.
- * The alarm is only armed while at least one Tasks widget is placed; [TasksWidgetReceiver.onDisabled] cancels it.
+ * The alarm is only armed while at least one Tasks or Money widget is placed; each receiver's onDisabled re-checks.
  */
 class MidnightReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
@@ -28,9 +28,14 @@ class MidnightReceiver : BroadcastReceiver() {
                 TasksWidget().updateAll(app)
             } finally {
                 try {
-                    scheduleIfPlaced(app)
+                    // Safe to spend per day changes with the day (fewer days left).
+                    MoneyWidget().updateAll(app)
                 } finally {
-                    pending.finish()
+                    try {
+                        scheduleIfPlaced(app)
+                    } finally {
+                        pending.finish()
+                    }
                 }
             }
         }
@@ -45,9 +50,18 @@ class MidnightReceiver : BroadcastReceiver() {
                 .set(AlarmManager.RTC, get<AppClock>().nextMidnightEpochMs() + 60_000, pendingIntent(context))
         }
 
-        /** Arms the alarm when a Tasks widget is on the home screen, cancels it otherwise. */
+        /** Arms the alarm when a Tasks or Money widget is on the home screen, cancels it otherwise. */
         suspend fun scheduleIfPlaced(context: Context) {
-            if (GlanceAppWidgetManager(context).getGlanceIds(TasksWidget::class.java).isNotEmpty()) schedule(context) else cancel(context)
+            val manager = GlanceAppWidgetManager(context)
+            val placed = manager.getGlanceIds(TasksWidget::class.java).isNotEmpty() ||
+                manager.getGlanceIds(MoneyWidget::class.java).isNotEmpty()
+            if (placed) schedule(context) else cancel(context)
+        }
+
+        /** [scheduleIfPlaced] from a receiver callback (not suspending), on the app scope. */
+        fun rescheduleAsync(context: Context) {
+            val app = context.applicationContext
+            get<AppScope>().scope.launch { scheduleIfPlaced(app) }
         }
 
         fun cancel(context: Context) {

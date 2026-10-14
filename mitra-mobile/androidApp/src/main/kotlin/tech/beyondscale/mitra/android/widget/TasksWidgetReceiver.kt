@@ -13,9 +13,9 @@ class TasksWidgetReceiver : GlanceAppWidgetReceiver() {
         MidnightReceiver.schedule(context)
     }
 
-    /** Last Tasks widget removed: nothing left to redraw at midnight. */
+    /** Last Tasks widget removed: keep the alarm only while a Money widget still needs it. */
     override fun onDisabled(context: Context) {
         super.onDisabled(context)
-        MidnightReceiver.cancel(context)
+        MidnightReceiver.rescheduleAsync(context)
     }
 }

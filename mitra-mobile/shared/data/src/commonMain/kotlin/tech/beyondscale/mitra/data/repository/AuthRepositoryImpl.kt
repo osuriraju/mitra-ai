@@ -68,6 +68,8 @@ class AuthRepositoryImpl(
 
     override val hasLocalAccount: Flow<Boolean> = cache.observe().map { it != null }.distinctUntilChanged()
 
+    override val localUser: Flow<User?> = cache.observe().distinctUntilChanged()
+
     init {
         // Session gone server-side: back to Login, but keep local data + queued changes for the same user.
         // UNDISPATCHED so the collector is subscribed before anything can emit.
