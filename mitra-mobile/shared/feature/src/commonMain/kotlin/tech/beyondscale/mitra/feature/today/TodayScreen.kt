@@ -1,5 +1,6 @@
 package tech.beyondscale.mitra.feature.today
 
+import androidx.compose.ui.semantics.heading
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
@@ -99,7 +100,7 @@ fun TodayScreen(
     ) {
         Column(Modifier.padding(horizontal = MitraDimens.pad), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Eyebrow(state.dateLine)
-            Text(state.greeting, style = Mitra.type.h1, color = Mitra.colors.text)
+            Text(state.greeting, Modifier.semantics { heading() }, style = Mitra.type.h1, color = Mitra.colors.text)
         }
         LazyRow(contentPadding = PaddingValues(horizontal = MitraDimens.pad), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             items(state.stats, key = { it.label }) { stat ->

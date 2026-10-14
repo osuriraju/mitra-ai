@@ -1,5 +1,7 @@
 package tech.beyondscale.mitra.designsystem.components
 
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.heading
 import androidx.compose.foundation.background
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
@@ -35,7 +37,7 @@ fun MitraTopBar(title: String, modifier: Modifier = Modifier, onBack: (() -> Uni
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         if (onBack != null) IconButton(onClick = onBack) { Icon(MitraIcons.ArrowLeft, contentDescription = "Back", tint = Mitra.colors.text) }
-        Text(title, Modifier.weight(1f), style = Mitra.type.h2, color = Mitra.colors.text)
+        Text(title, Modifier.weight(1f).semantics { heading() }, style = Mitra.type.h2, color = Mitra.colors.text)
         actions()
     }
 }

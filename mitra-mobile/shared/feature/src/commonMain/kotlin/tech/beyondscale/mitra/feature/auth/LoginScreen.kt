@@ -1,5 +1,6 @@
 package tech.beyondscale.mitra.feature.auth
 
+import androidx.compose.ui.autofill.ContentType
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -28,10 +29,11 @@ fun LoginScreen(state: LoginUiState, onAction: (LoginAction) -> Unit, onSignup: 
         MitraTextField(
             value = state.identifier, onValueChange = { onAction(LoginAction.Identifier(it)) },
             label = "Email or username", error = state.fieldErrors["identifier"], keyboardType = KeyboardType.Email,
+            contentType = ContentType.Username + ContentType.EmailAddress,
         )
         MitraTextField(
             value = state.password, onValueChange = { onAction(LoginAction.Password(it)) },
-            label = "Password", error = state.fieldErrors["password"], isPassword = true,
+            label = "Password", error = state.fieldErrors["password"], isPassword = true, contentType = ContentType.Password,
             imeAction = ImeAction.Done, onImeAction = { onAction(LoginAction.Submit) },
         )
         state.error?.let { MitraBanner(it) }

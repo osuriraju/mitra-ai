@@ -1,5 +1,6 @@
 package tech.beyondscale.mitra.feature.auth
 
+import androidx.compose.ui.autofill.ContentType
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -39,6 +40,7 @@ fun ForgotPasswordScreen(state: ForgotUiState, onAction: (ForgotAction) -> Unit,
             MitraTextField(
                 state.email, { onAction(ForgotAction.Email(it)) }, label = "Email", error = state.fieldError,
                 keyboardType = KeyboardType.Email, imeAction = ImeAction.Done, onImeAction = { onAction(ForgotAction.Submit) },
+                contentType = ContentType.EmailAddress,
             )
             state.error?.let { MitraBanner(it) }
             MitraButton("Send reset link", onClick = { onAction(ForgotAction.Submit) }, modifier = Modifier.fillMaxWidth(), size = ButtonSize.Lg, loading = state.loading)

@@ -1,5 +1,7 @@
 package tech.beyondscale.mitra.feature.auth
 
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.heading
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -32,7 +34,7 @@ internal fun AuthScaffold(title: String, subtitle: String, content: @Composable 
         Column(Modifier.widthIn(max = 420.dp), verticalArrangement = Arrangement.spacedBy(MitraDimens.gap)) {
             MitraMark()
             Spacer(Modifier.height(4.dp))
-            Text(title, style = Mitra.type.h1, color = Mitra.colors.text)
+            Text(title, Modifier.semantics { heading() }, style = Mitra.type.h1, color = Mitra.colors.text)
             Text(subtitle, style = Mitra.type.body, color = Mitra.colors.muted)
             Spacer(Modifier.height(8.dp))
             content()

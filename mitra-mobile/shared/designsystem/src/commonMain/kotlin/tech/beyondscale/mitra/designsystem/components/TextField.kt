@@ -1,5 +1,11 @@
 package tech.beyondscale.mitra.designsystem.components
 
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.error
+import androidx.compose.ui.semantics.contentType
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.autofill.ContentType
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -42,15 +48,24 @@ fun MitraTextField(
     singleLine: Boolean = true,
     minLines: Int = 1,
     placeholder: String? = null,
+    /** Autofill hint (e.g. [ContentType.Username], [ContentType.Password], [ContentType.NewPassword]). */
+    contentType: ContentType? = null,
 ) {
     val c = Mitra.colors
     var revealed by rememberSaveable { mutableStateOf(false) }
     Column(modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Text(label, style = Mitra.type.sm.copy(fontWeight = FontWeight.SemiBold), color = c.muted)
+        // The visible label is announced as the field's own label (below), not as a separate text node.
+        Text(label, Modifier.clearAndSetSemantics {}, style = Mitra.type.sm.copy(fontWeight = FontWeight.SemiBold), color = c.muted)
         OutlinedTextField(
             value = value,
             onValueChange = onValueChange,
-            modifier = Modifier.fillMaxWidth().then(fieldModifier),
+            modifier = Modifier.fillMaxWidth()
+                .semantics {
+                    contentDescription = label
+                    if (error != null) error(error)
+                    if (contentType != null) this.contentType = contentType
+                }
+                .then(fieldModifier),
             singleLine = singleLine && minLines <= 1,
             minLines = minLines,
             placeholder = placeholder?.let { { Text(it, style = Mitra.type.body, color = c.faint) } },
@@ -77,6 +92,6 @@ fun MitraTextField(
                 cursorColor = c.accent,
             ),
         )
-        if (error != null) Text(error, style = Mitra.type.xs, color = c.danger)
+        if (error != null) Text(error, Modifier.clearAndSetSemantics {}, style = Mitra.type.xs, color = c.danger)
     }
 }

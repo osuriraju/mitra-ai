@@ -1,5 +1,7 @@
 package tech.beyondscale.mitra.designsystem.components
 
+import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -54,6 +56,8 @@ fun MitraButton(
             .clip(shape)
             .background(bg)
             .border(1.dp, border, shape)
+            // Busy: announced as "Loading" (the spinner itself is decorative) rather than only as disabled.
+            .semantics { if (loading) stateDescription = "Loading" }
             .clickable(enabled = enabled && !loading, role = Role.Button, onClick = onClick)
             .padding(horizontal = 16.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),

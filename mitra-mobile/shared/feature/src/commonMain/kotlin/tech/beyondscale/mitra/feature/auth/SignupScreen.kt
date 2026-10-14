@@ -1,5 +1,6 @@
 package tech.beyondscale.mitra.feature.auth
 
+import androidx.compose.ui.autofill.ContentType
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -23,11 +24,11 @@ fun SignupRoute(onSignIn: () -> Unit, vm: SignupViewModel = koinViewModel()) {
 @Composable
 fun SignupScreen(state: SignupUiState, onAction: (SignupAction) -> Unit, onSignIn: () -> Unit) {
     AuthScaffold(title = "Create your account", subtitle = "Tasks, habits, money and more — in one place.") {
-        MitraTextField(state.name, { onAction(SignupAction.Name(it)) }, label = "Name", error = state.fieldErrors["name"])
-        MitraTextField(state.email, { onAction(SignupAction.Email(it)) }, label = "Email", error = state.fieldErrors["email"], keyboardType = KeyboardType.Email)
+        MitraTextField(state.name, { onAction(SignupAction.Name(it)) }, label = "Name", error = state.fieldErrors["name"], contentType = ContentType.PersonFullName)
+        MitraTextField(state.email, { onAction(SignupAction.Email(it)) }, label = "Email", error = state.fieldErrors["email"], keyboardType = KeyboardType.Email, contentType = ContentType.EmailAddress)
         MitraTextField(
             state.password, { onAction(SignupAction.Password(it)) }, label = "Password", error = state.fieldErrors["password"],
-            isPassword = true, imeAction = ImeAction.Done, onImeAction = { onAction(SignupAction.Submit) },
+            isPassword = true, imeAction = ImeAction.Done, onImeAction = { onAction(SignupAction.Submit) }, contentType = ContentType.NewPassword,
         )
         state.error?.let { MitraBanner(it) }
         MitraButton("Create account", onClick = { onAction(SignupAction.Submit) }, modifier = Modifier.fillMaxWidth(), size = ButtonSize.Lg, loading = state.loading)
