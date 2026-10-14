@@ -22,11 +22,18 @@ import kotlin.reflect.KClass
 /** Focus mode; an empty [taskId] works through today's queue. */
 @Serializable data class FocusDest(val taskId: String = "")
 
-/** How much of the shell a route shows: both bars, the bottom bar only (the screen draws its own back bar), or none. */
-internal enum class Chrome { Tab, Detail, Fullscreen }
+/**
+ * How much of the shell a route shows: both bars ([Tab]); the bottom bar with the screen drawing its own top bar
+ * (a tab, [TabOwnBar], or a back-bar [Detail] screen); or none ([Fullscreen]).
+ */
+internal enum class Chrome { Tab, TabOwnBar, Detail, Fullscreen }
 
 internal fun chromeFor(route: KClass<*>?): Chrome = when (route) {
     TaskDetailDest::class, ProjectDetailDest::class -> Chrome.Detail
     FocusDest::class -> Chrome.Fullscreen
+    TasksDest::class -> Chrome.TabOwnBar
     else -> Chrome.Tab
 }
+
+/** Shell-scoped ViewModels are keyed per account, so a signed-in user never inherits the previous account's draft. */
+internal fun shellVmKey(name: String, userId: String): String = "$name:$userId"

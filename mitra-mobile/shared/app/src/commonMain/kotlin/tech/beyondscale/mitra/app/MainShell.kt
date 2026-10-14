@@ -128,12 +128,14 @@ internal fun MainShell(user: User, sync: SyncStatus, messages: Flow<String>) {
     val shellScope = rememberCoroutineScope()
     val snackbar = remember(snackbarHost, shellScope) { SnackbarController(snackbarHost, shellScope) }
     // Shell-scoped sheets: obtained outside any nav entry so their Undo snackbars survive navigation.
-    val quickAdd: QuickAddViewModel = koinViewModel()
-    val editor: TaskEditorViewModel = koinViewModel()
+    // Keyed per account: a sheet left open at sign-out must not carry its draft (or edit target) into the next account.
+    val quickAdd: QuickAddViewModel = koinViewModel(key = shellVmKey("quickAdd", user.id))
+    val editor: TaskEditorViewModel = koinViewModel(key = shellVmKey("taskEditor", user.id))
     val launches: LaunchRequests = koinInject()
     var moreOpen by rememberSaveable { mutableStateOf(false) }
     var quickAddOpen by rememberSaveable { mutableStateOf(false) }
-    LaunchedEffect(messages, snackbar) { messages.collect { snackbar.show(it) } }
+    // The one collector of sync messages; showSnackbar queues behind (rather than dismissing) an Undo snackbar.
+    LaunchedEffect(messages) { messages.collect { snackbarHost.showSnackbar(it) } }
 
     // Bottom bar: Today · Tasks · ＋ · Money (Habits if Money is off) · More
     val modules = user.settings.modules
@@ -142,7 +144,7 @@ internal fun MainShell(user: User, sync: SyncStatus, messages: Flow<String>) {
     val destination = entry?.destination
     val chrome = chromeFor(CHROME_ROUTES.firstOrNull { k -> destination?.hasRoute(k) == true })
     // Task and project detail and Focus all live under Tasks.
-    val current = if (chrome != Chrome.Tab) TASKS
+    val current = if (isDetail(chrome)) TASKS
     else (tabs + more).firstOrNull { d -> destination?.hierarchy?.any { it.hasRoute(d.route::class) } == true }
 
     fun go(route: Any) = nav.navigate(route) {
@@ -154,14 +156,14 @@ internal fun MainShell(user: User, sync: SyncStatus, messages: Flow<String>) {
     // Never pop the last entry (a double tap on Back would otherwise leave an empty NavHost).
     fun back() { if (nav.previousBackStackEntry != null) nav.popBackStack() }
     fun select(d: Dest) {
-        // From a detail screen, Tasks returns to the list beneath it rather than restoring the detail.
-        if (chrome != Chrome.Tab && d == TASKS && nav.popBackStack<TasksDest>(inclusive = false)) return
+        // From a detail screen, a tab already beneath it is popped back to, so the detail isn't saved into that tab's stack.
+        if (isDetail(chrome) && nav.popBackStack(d.route, inclusive = false)) return
         go(d.route)
     }
 
     // A module switched off while its screen is open would strand the user: fall back to Today.
     LaunchedEffect(modules, current, entry, chrome) {
-        if (chrome == Chrome.Tab && entry != null && current == null && entry?.destination?.route != null) go(TodayDest)
+        if (!isDetail(chrome) && entry != null && current == null && entry?.destination?.route != null) go(TodayDest)
     }
 
     // Widget / shortcut targets wait in LaunchRequests (also while signed out) until this shell handles them.
@@ -170,7 +172,12 @@ internal fun MainShell(user: User, sync: SyncStatus, messages: Flow<String>) {
         val target = pending ?: return@LaunchedEffect
         nav.currentBackStackEntryFlow.first() // the graph is set
         when (target) {
-            is LaunchTarget.OpenTask -> { go(TasksDest); openTask(target.id) }
+            is LaunchTarget.OpenTask -> {
+                go(TasksDest)
+                // go() may restore a detail saved in the Tasks stack: return to the list so details don't pile up.
+                nav.popBackStack<TasksDest>(inclusive = false)
+                openTask(target.id)
+            }
             LaunchTarget.OpenTasks -> go(TasksDest)
             LaunchTarget.QuickAddTask -> quickAddOpen = true
         }
@@ -182,18 +189,20 @@ internal fun MainShell(user: User, sync: SyncStatus, messages: Flow<String>) {
         EventEffect(editor.events, editor::onAction)
         val addTask: (TaskDraft) -> Unit = { editor.onAction(TaskEditorAction.Open(it)) }
 
+        val shellActions: @Composable RowScope.() -> Unit = {
+            syncLabel(sync)?.let { (text, tone) -> SyncPill(text, tone) }
+            IconButton(onClick = { go(SettingsDest) }) { Avatar(user.initials) }
+        }
+
         Scaffold(
             containerColor = Mitra.colors.bg,
             contentWindowInsets = WindowInsets(0),
             snackbarHost = { SnackbarHost(snackbarHost) },
             topBar = {
                 when (chrome) {
-                    Chrome.Tab -> MitraTopBar(title = current?.label ?: "Mitra", modifier = Modifier.statusBarsPadding()) {
-                        syncLabel(sync)?.let { (text, tone) -> SyncPill(text, tone) }
-                        IconButton(onClick = { go(SettingsDest) }) { Avatar(user.initials) }
-                    }
-                    // Detail screens draw their own back bar; keep them clear of the status bar.
-                    Chrome.Detail -> Spacer(Modifier.fillMaxWidth().windowInsetsTopHeight(WindowInsets.statusBars))
+                    Chrome.Tab -> MitraTopBar(title = current?.label ?: "Mitra", modifier = Modifier.statusBarsPadding(), actions = shellActions)
+                    // These screens draw their own top bar; keep them clear of the status bar.
+                    Chrome.TabOwnBar, Chrome.Detail -> Spacer(Modifier.fillMaxWidth().windowInsetsTopHeight(WindowInsets.statusBars))
                     Chrome.Fullscreen -> Unit
                 }
             },
@@ -215,6 +224,7 @@ internal fun MainShell(user: User, sync: SyncStatus, messages: Flow<String>) {
                         onOpenProject = { nav.navigate(ProjectDetailDest(it)) },
                         onAddTask = addTask,
                         onFocus = { nav.navigate(FocusDest()) },
+                        topBarActions = shellActions,
                     )
                 }
                 composable<TaskDetailDest> { e ->
@@ -271,6 +281,9 @@ internal fun MainShell(user: User, sync: SyncStatus, messages: Flow<String>) {
         }
     }
 }
+
+/** Routes stacked over a tab (detail screens and Focus). */
+private fun isDetail(chrome: Chrome) = chrome == Chrome.Detail || chrome == Chrome.Fullscreen
 
 @Composable
 private fun RowScope.MoreTile(d: Dest, selected: Boolean, onClick: () -> Unit) {

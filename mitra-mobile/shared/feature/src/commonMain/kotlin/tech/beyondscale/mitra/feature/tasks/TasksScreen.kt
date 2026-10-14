@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -94,12 +95,14 @@ fun TasksRoute(
     onFocus: () -> Unit,
     /** Null (the default) opens the "New project" sheet hosted here. */
     onNewProject: (() -> Unit)? = null,
+    /** Extra top-bar actions after Add (the shell passes its sync pill and avatar). */
+    topBarActions: @Composable RowScope.() -> Unit = {},
     vm: TasksViewModel = koinViewModel(),
 ) {
     val state by vm.state.collectAsStateWithLifecycle()
     EventEffect(vm.events, vm::onAction)
     var newProject by rememberSaveable { mutableStateOf(false) }
-    TasksScreen(state, vm::onAction, onOpenTask, onOpenProject, onAddTask, onFocus, onNewProject ?: { newProject = true })
+    TasksScreen(state, vm::onAction, onOpenTask, onOpenProject, onAddTask, onFocus, onNewProject ?: { newProject = true }, topBarActions)
     if (newProject) {
         ProjectFormSheet(
             title = "New project",
@@ -120,6 +123,7 @@ fun TasksScreen(
     onAddTask: (TaskDraft) -> Unit,
     onFocus: () -> Unit,
     onNewProject: () -> Unit = {},
+    topBarActions: @Composable RowScope.() -> Unit = {},
 ) {
     val today = state.today
     val tomorrow = if (today.isEmpty()) null else addDays(today, 1)
@@ -148,6 +152,7 @@ fun TasksScreen(
             IconButton(onClick = addForTab) {
                 Icon(MitraIcons.Plus, contentDescription = if (state.tab == TasksTab.Projects) "New project" else "Add task", tint = Mitra.colors.accent)
             }
+            topBarActions()
         }
         val counts = state.counts
         if (state.selection.isEmpty()) {
