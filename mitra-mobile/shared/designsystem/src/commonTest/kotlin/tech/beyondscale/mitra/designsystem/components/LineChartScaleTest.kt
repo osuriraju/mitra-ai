@@ -52,4 +52,19 @@ class LineChartScaleTest {
         // Degenerate range falls back to a divisor of 1 (web `mx - mn || 1`).
         assertEquals(50f - 0f, chartY(2.0, 2.0, 2.0, height = 50f))
     }
+
+    @Test fun scrubPicksNearestPoint() {
+        // 3 points on 300 px sit at 0, 150, 300: x = 90 is closer to the middle one (equal slots would say 0).
+        assertEquals(1, nearestPointIndex(90f, 300f, inset = 0f, count = 3))
+        assertEquals(0, nearestPointIndex(74f, 300f, inset = 0f, count = 3))
+        assertEquals(2, nearestPointIndex(260f, 300f, inset = 0f, count = 3))
+        // Out of range clamps; the inset shifts the points (10, 150, 290 on 300 px with a 10 px inset).
+        assertEquals(0, nearestPointIndex(-40f, 300f, inset = 10f, count = 3))
+        assertEquals(2, nearestPointIndex(999f, 300f, inset = 10f, count = 3))
+        assertEquals(1, nearestPointIndex(85f, 300f, inset = 10f, count = 3))
+        // A single point (drawn at the left edge) is always the hit; nothing to hit returns -1.
+        assertEquals(0, nearestPointIndex(280f, 300f, inset = 0f, count = 1))
+        assertEquals(-1, nearestPointIndex(10f, 300f, inset = 0f, count = 0))
+        assertEquals(-1, nearestPointIndex(10f, 0f, inset = 0f, count = 3))
+    }
 }

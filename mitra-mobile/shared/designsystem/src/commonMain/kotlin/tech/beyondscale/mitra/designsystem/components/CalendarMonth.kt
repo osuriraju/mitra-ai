@@ -33,8 +33,18 @@ import tech.beyondscale.mitra.designsystem.theme.Mitra
 /** One square of a month grid. Leading days of the previous month have no [date] and `inMonth = false`. */
 data class CalendarCell(val date: String?, val day: Int, val inMonth: Boolean)
 
-/** How a day renders (web history grid classes `hit` / `miss` / `today` / `out` and the partial dot). */
-data class CalendarDayStyle(val hit: Boolean, val miss: Boolean, val today: Boolean, val future: Boolean, val partial: Boolean)
+/**
+ * How a day renders (web history grid classes `hit` / `miss` / `today` / `out` and the partial dot).
+ * [rest] marks a day the habit isn't scheduled; it only changes what is spoken ("rest day").
+ */
+data class CalendarDayStyle(
+    val hit: Boolean,
+    val miss: Boolean,
+    val today: Boolean,
+    val future: Boolean,
+    val partial: Boolean,
+    val rest: Boolean = false,
+)
 
 private val MONTHS = listOf(
     "January", "February", "March", "April", "May", "June",
@@ -79,6 +89,7 @@ fun calendarCellDescription(cell: CalendarCell, style: CalendarDayStyle): String
         style.partial -> "partial"
         style.miss -> "missed"
         style.future -> "upcoming"
+        style.rest -> "rest day"
         else -> "not done"
     }
     return listOfNotNull(listOfNotNull(cell.day.toString(), month).joinToString(" "), "today".takeIf { style.today }, status).joinToString(", ")
@@ -86,7 +97,9 @@ fun calendarCellDescription(cell: CalendarCell, style: CalendarDayStyle): String
 
 /**
  * Month grid (web habit history `calendar-grid`): weekday header, then [cells] seven to a row.
- * Past and present days are buttons (≥ 40 dp) calling [onTap] with their date; future days are not tappable.
+ * Past and present days are buttons calling [onTap] with their date; future days are not tappable.
+ * Cells are square and at least 40 dp tall — a deliberate exception to the 48 dp target, since seven 48 dp
+ * columns plus gaps don't fit a narrow phone inside a card (web grid parity).
  */
 @Composable
 fun CalendarMonth(

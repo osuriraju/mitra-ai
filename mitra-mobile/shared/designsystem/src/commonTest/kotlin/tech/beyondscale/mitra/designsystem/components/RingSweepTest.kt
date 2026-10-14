@@ -20,8 +20,18 @@ class RingSweepTest {
 
     @Test fun weekDotsSpeakEachDay() {
         assertEquals(
-            "Mon done, Tue missed, Wed done (today), Thu missed, Fri missed, Sat missed, Sun missed",
+            "Mon done, Tue missed, Wed done (today), Thu upcoming, Fri upcoming, Sat upcoming, Sun upcoming",
             weekDotsDescription(listOf(true, false, true, false, false, false, false), todayIndex = 2),
         )
+        assertEquals("Mon missed, Tue missed (today)", weekDotsDescription(listOf(false, false), todayIndex = 1))
+        assertEquals("Mon missed (today)", weekDotsDescription(listOf(false), todayIndex = 0))
+    }
+
+    @Test fun ringLabelStopsGrowingPastTheCap() {
+        // Web: round(size / 4) px. Font scale may enlarge it by at most 1.25× so "100%" stays inside the ring.
+        assertEquals(11f, ringLabelSp(44f, fontScale = 1f), 0.001f)
+        assertEquals(11f, ringLabelSp(44f, fontScale = 1.1f), 0.001f) // under the cap: scales with the user's font
+        assertEquals(11f * 1.25f / 2f, ringLabelSp(44f, fontScale = 2f), 0.001f) // 200 %: rendered at 13.75 dp, not 22
+        assertEquals(10f, ringLabelSp(40f, fontScale = 0.85f), 0.001f) // smaller font scales still shrink normally
     }
 }

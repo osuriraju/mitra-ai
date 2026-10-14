@@ -38,6 +38,7 @@ class CalendarCellsTest {
         assertEquals("14 October, today, missed", calendarCellDescription(cell, CalendarDayStyle(hit = false, miss = true, today = true, future = false, partial = false)))
         assertEquals("14 October, partial", calendarCellDescription(cell, CalendarDayStyle(hit = false, miss = false, today = false, future = false, partial = true)))
         assertEquals("14 October, upcoming", calendarCellDescription(cell, CalendarDayStyle(hit = false, miss = false, today = false, future = true, partial = false)))
+        assertEquals("14 October, rest day", calendarCellDescription(cell, CalendarDayStyle(hit = false, miss = false, today = false, future = false, partial = false, rest = true)))
         assertEquals("14 October, not done", calendarCellDescription(cell, CalendarDayStyle(hit = false, miss = false, today = false, future = false, partial = false)))
     }
 }

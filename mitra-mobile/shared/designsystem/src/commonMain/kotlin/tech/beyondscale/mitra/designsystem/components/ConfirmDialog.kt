@@ -6,7 +6,10 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import tech.beyondscale.mitra.designsystem.theme.Mitra
 
-/** Confirm dialog styled like the existing delete confirms (web `Confirm`); [danger] tints the confirm action. */
+/**
+ * Confirm dialog styled like the existing delete confirms (web `Confirm`); [danger] tints the confirm action.
+ * [onConfirm] does **not** dismiss: the caller hides the dialog itself (e.g. clears its `show` flag) in [onConfirm].
+ */
 @Composable
 fun MitraConfirmDialog(
     title: String,

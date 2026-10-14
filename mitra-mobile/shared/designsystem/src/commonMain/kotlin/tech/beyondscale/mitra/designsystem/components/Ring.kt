@@ -12,6 +12,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.text.font.FontWeight
@@ -33,6 +34,19 @@ fun Tone.color(): Color = when (this) {
     Tone.Neutral -> Mitra.colors.muted
 }
 
+/** Largest font-scale multiplier the ring label follows; beyond it "100%" would spill out of the ring. */
+private const val RING_LABEL_MAX_SCALE = 1.25f
+
+/**
+ * Label size in sp for a ring of [sizeDp]: web `round(size / 4)`, following the user's [fontScale] up to
+ * [RING_LABEL_MAX_SCALE] and no further (sp is multiplied by fontScale when rendered, so we divide it back out).
+ */
+fun ringLabelSp(sizeDp: Float, fontScale: Float): Float {
+    val base = (sizeDp / 4f).roundToInt().toFloat()
+    val scale = if (fontScale > 0f) fontScale else 1f
+    return base * minOf(scale, RING_LABEL_MAX_SCALE) / scale
+}
+
 /** Sweep in degrees for a percentage, clamped to 0..360. */
 fun ringSweep(pct: Int): Float = pct.coerceIn(0, 100) * 3.6f
 
@@ -52,6 +66,7 @@ fun Ring(
     val c = Mitra.colors
     val col = tone.color()
     val sweep = ringSweep(pct)
+    val labelSp = ringLabelSp(size.value, LocalDensity.current.fontScale)
     val spoken = if (label.isNullOrEmpty()) "${pct.coerceIn(0, 100)}% progress" else "$label progress"
     Box(modifier.size(size).clearAndSetSemantics { contentDescription = spoken }, contentAlignment = Alignment.Center) {
         Canvas(Modifier.size(size)) {
@@ -63,11 +78,10 @@ fun Ring(
             if (sweep > 0f) drawArc(col, -90f, sweep, false, tl, box, style = Stroke(w, cap = StrokeCap.Round))
         }
         if (!label.isNullOrEmpty()) {
-            // Web: font-size = round(size / 4).
             Text(
                 label,
-                style = Mitra.type.num.copy(fontWeight = FontWeight.SemiBold, fontSize = (size.value / 4f).roundToInt().sp),
-                color = c.text, maxLines = 1,
+                style = Mitra.type.num.copy(fontWeight = FontWeight.Bold, fontSize = labelSp.sp),
+                color = c.text, maxLines = 1, softWrap = false,
             )
         }
     }

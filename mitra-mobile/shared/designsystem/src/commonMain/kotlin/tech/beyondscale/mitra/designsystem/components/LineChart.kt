@@ -1,9 +1,9 @@
 package tech.beyondscale.mitra.designsystem.components
 
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -17,6 +17,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathEffect
@@ -34,6 +35,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlin.math.roundToInt
 import tech.beyondscale.mitra.designsystem.theme.Mitra
 import tech.beyondscale.mitra.designsystem.theme.MitraDimens
 
@@ -66,8 +68,20 @@ fun chartPoints(values: List<Double>, min: Double, max: Double, width: Float, he
 }
 
 /**
+ * Index of the point nearest [x] when [count] points span [width] minus an [inset] on each side
+ * (same spacing as [chartPoints]); clamped, 0 for a lone point, -1 when there is nothing to hit.
+ */
+fun nearestPointIndex(x: Float, width: Float, inset: Float, count: Int): Int {
+    if (count <= 0 || width <= 0f) return -1
+    if (count == 1) return 0
+    val step = (width - inset * 2f) / (count - 1)
+    if (step <= 0f) return 0
+    return ((x - inset) / step).roundToInt().coerceIn(0, count - 1)
+}
+
+/**
  * Line chart with area fill, the latest point marked and labelled, and an optional dashed goal line (web `LineChart`).
- * Press and hold, then drag, to read any point (same gesture as [ScrubBars]). The y scale is [chartMin]..[chartMax], as on the web.
+ * Press and hold, then drag, to read the nearest point (same gesture as [ScrubBars]). The y scale is [chartMin]..[chartMax], as on the web.
  */
 @Composable
 fun LineChart(
@@ -94,8 +108,9 @@ fun LineChart(
             .semantics { contentDescription = summary }
             // Scrub only after a long press so vertical drags still scroll the page.
             .pointerInput(values.size) {
+                val inset = PointInset.toPx()
                 fun move(x: Float) {
-                    val i = scrubIndex(x, size.width.toFloat(), values.size)
+                    val i = nearestPointIndex(x, size.width.toFloat(), inset, values.size)
                     if (i != active) { active = i; if (i >= 0) haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove) }
                 }
                 detectDragGesturesAfterLongPress(
@@ -106,53 +121,62 @@ fun LineChart(
                 )
             },
     ) {
-        Canvas(Modifier.fillMaxSize()) {
-            val labelBand = 22.dp.toPx() // web: plot height = h − 22
-            val inset = 5.dp.toPx() // keeps the end dots' stroke inside the canvas
-            val w = size.width - inset * 2
-            val ph = (size.height - labelBand).coerceAtLeast(1f)
-            val dash = PathEffect.dashPathEffect(floatArrayOf(2.dp.toPx(), 3.dp.toPx()))
-            listOf(0f, 0.5f, 1f).forEach { g ->
-                val y = ph - ph * g
-                drawLine(c.border, Offset(0f, y), Offset(size.width, y), 1.dp.toPx(), pathEffect = dash)
-            }
-            if (goal != null) {
+        Spacer(
+            Modifier.fillMaxSize().drawWithCache {
+                // Geometry, paths, effects and text layouts are rebuilt only when the size or data change;
+                // the scrub index is read in the draw lambda alone.
+                val labelBand = 22.dp.toPx() // web: plot height = h − 22
+                val inset = PointInset.toPx() // keeps the end dots' stroke inside the canvas
+                val w = size.width - inset * 2
+                val ph = (size.height - labelBand).coerceAtLeast(1f)
+                val gridDash = PathEffect.dashPathEffect(floatArrayOf(2.dp.toPx(), 3.dp.toPx()))
+                val goalDash = PathEffect.dashPathEffect(floatArrayOf(4.dp.toPx(), 4.dp.toPx()))
+                val hair = 1.dp.toPx()
+                val lineStroke = Stroke(2.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round)
+                val dotStroke = Stroke(2.dp.toPx())
+                val dotR = 4.dp.toPx()
                 // A goal below the series' floor would land in the label band; pin it to the plot edges instead.
-                val gy = chartY(goal, min, max, ph).coerceIn(0f, ph)
-                drawLine(
-                    c.success, Offset(0f, gy), Offset(size.width, gy), 1.5.dp.toPx(),
-                    pathEffect = PathEffect.dashPathEffect(floatArrayOf(4.dp.toPx(), 4.dp.toPx())),
-                )
-            }
-            val pts = chartPoints(values, min, max, w, ph).map { (x, y) -> Offset(x + inset, y) }
-            if (pts.isNotEmpty()) {
+                val goalY = goal?.let { chartY(it, min, max, ph).coerceIn(0f, ph) }
+                val pts = chartPoints(values, min, max, w, ph).map { (x, y) -> Offset(x + inset, y) }
                 val line = Path().apply { pts.forEachIndexed { i, p -> if (i == 0) moveTo(p.x, p.y) else lineTo(p.x, p.y) } }
-                val area = Path().apply { addPath(line); lineTo(pts.last().x, ph); lineTo(pts.first().x, ph); close() }
-                drawPath(area, c.accent.copy(alpha = 0.12f))
-                drawPath(line, c.accent, style = Stroke(2.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round))
-                val mark = if (active in pts.indices) active else pts.lastIndex
-                if (active in pts.indices) {
-                    drawLine(c.border, Offset(pts[mark].x, 0f), Offset(pts[mark].x, ph), 1.dp.toPx())
+                val area = Path().apply {
+                    if (pts.isNotEmpty()) { addPath(line); lineTo(pts.last().x, ph); lineTo(pts.first().x, ph); close() }
                 }
-                drawCircle(c.surface, 4.dp.toPx(), pts[mark])
-                drawCircle(c.accent, 4.dp.toPx(), pts[mark], style = Stroke(2.dp.toPx()))
-                if (active !in pts.indices) {
-                    // Latest value above the last point, right-aligned to it (web `textAnchor="end"`).
-                    val t = measurer.measure(format(values.last()), valueStyle)
-                    val x = (pts.last().x - t.size.width).coerceAtLeast(0f)
-                    val y = (pts.last().y - 9.dp.toPx() - t.size.height).coerceAtLeast(0f)
-                    drawText(t, topLeft = Offset(x, y))
+                val latest = values.lastOrNull()?.let { measurer.measure(format(it), valueStyle) }
+                val latestAt = latest?.let { t ->
+                    Offset(
+                        (pts.last().x - t.size.width).coerceAtLeast(0f), // right-aligned to the point (web `textAnchor="end"`)
+                        (pts.last().y - 9.dp.toPx() - t.size.height).coerceAtLeast(0f),
+                    )
                 }
-            }
-            val n = maxOf(2, values.size)
-            labels.forEachIndexed { i, l ->
-                if (l.isEmpty() || i >= n) return@forEachIndexed
-                val t = measurer.measure(l, axisStyle)
-                val cx = inset + i * (w / (n - 1))
-                val x = when (i) { 0 -> 0f; n - 1 -> size.width - t.size.width; else -> cx - t.size.width / 2f }
-                drawText(t, topLeft = Offset(x.coerceIn(0f, (size.width - t.size.width).coerceAtLeast(0f)), size.height - t.size.height - 2.dp.toPx()))
-            }
-        }
+                val n = maxOf(2, values.size)
+                val axis = labels.mapIndexedNotNull { i, l ->
+                    if (l.isEmpty() || i >= n) return@mapIndexedNotNull null
+                    val t = measurer.measure(l, axisStyle)
+                    val cx = inset + i * (w / (n - 1))
+                    val x = when (i) { 0 -> 0f; n - 1 -> size.width - t.size.width; else -> cx - t.size.width / 2f }
+                    t to Offset(x.coerceIn(0f, (size.width - t.size.width).coerceAtLeast(0f)), size.height - t.size.height - 2.dp.toPx())
+                }
+                onDrawBehind {
+                    listOf(0f, 0.5f, 1f).forEach { g ->
+                        val y = ph - ph * g
+                        drawLine(c.border, Offset(0f, y), Offset(size.width, y), hair, pathEffect = gridDash)
+                    }
+                    if (goalY != null) drawLine(c.success, Offset(0f, goalY), Offset(size.width, goalY), 1.5.dp.toPx(), pathEffect = goalDash)
+                    if (pts.isNotEmpty()) {
+                        drawPath(area, c.accent.copy(alpha = 0.12f))
+                        drawPath(line, c.accent, style = lineStroke)
+                        val scrubbing = active in pts.indices
+                        val mark = if (scrubbing) active else pts.lastIndex
+                        if (scrubbing) drawLine(c.border, Offset(pts[mark].x, 0f), Offset(pts[mark].x, ph), hair)
+                        drawCircle(c.surface, dotR, pts[mark])
+                        drawCircle(c.accent, dotR, pts[mark], style = dotStroke)
+                        if (!scrubbing && latest != null && latestAt != null) drawText(latest, topLeft = latestAt)
+                    }
+                    axis.forEach { (t, at) -> drawText(t, topLeft = at) }
+                }
+            },
+        )
         if (active in values.indices) {
             val label = labels.getOrElse(active) { "" }
             Text(
@@ -163,3 +187,6 @@ fun LineChart(
         }
     }
 }
+
+/** Horizontal inset of the first and last points, shared by drawing and hit-testing. */
+private val PointInset = 5.dp
