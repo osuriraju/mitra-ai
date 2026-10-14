@@ -76,3 +76,64 @@ fun inrShortPaise(paise: Long): String = inrShort(paise / 100.0)
 
 /** "−₹120" (U+2212) when negative, "+₹120" otherwise — the web's signed net amounts. */
 fun signedInrPaise(paise: Long): String = (if (paise < 0) "\u2212" else "+") + inrPaise(paise)
+
+/* Goal numbers (plain doubles, not paise) — ports of `toLocaleString('en-IN')` and `String(n)`. */
+
+/**
+ * round(frac * f) half-up on the exact binary value of [frac] (0 <= frac < 1, f <= 1000), like [roundHalfUpExact]
+ * but in unsigned arithmetic: 2 * f * m < 2^64 for m < 2^53.
+ */
+private fun roundFractionHalfUp(frac: Double, f: Long): Long {
+    if (frac == 0.0) return 0
+    val bits = frac.toRawBits()
+    val expBits = ((bits ushr 52) and 0x7FF).toInt()
+    val raw = bits and ((1L shl 52) - 1)
+    val m = if (expBits == 0) raw else raw or (1L shl 52)
+    val s = if (expBits == 0) 1074 else 1075 - expBits // frac < 1, so s > 0
+    val t = 2uL * f.toULong() * m.toULong()
+    val q = if (s >= 64) 0uL else t shr s
+    return ((q + 1uL) / 2uL).toLong()
+}
+
+/**
+ * `x.toLocaleString('en-IN')`: Indian digit grouping, at most 3 fraction digits (halves away from zero on the
+ * exact value, like Intl's default `halfExpand`), trailing zeros dropped, minus sign kept.
+ * `100000.0 → "1,00,000"`, `1234.5678 → "1,234.568"`, `0.5 → "0.5"`.
+ */
+fun localeIN(x: Double): String {
+    if (x.isNaN()) return "NaN"
+    val negative = x < 0.0 || (x == 0.0 && 1.0 / x < 0.0)
+    if (x.isInfinite()) return if (negative) "-∞" else "∞"
+    val a = abs(x)
+    var whole = floor(a).toLong()
+    var milli = roundFractionHalfUp(a - floor(a), 1000)
+    if (milli == 1000L) { whole += 1; milli = 0 }
+    val fraction = if (milli == 0L) "" else "." + milli.toString().padStart(3, '0').trimEnd('0')
+    return (if (negative) "-" else "") + groupIndian(whole) + fraction
+}
+
+/** JavaScript `String(n)` for the magnitudes goals use: `58000.0 → "58000"`, `12.5 → "12.5"`, `-0.0 → "0"`. */
+fun jsNum(x: Double): String {
+    if (x.isNaN()) return "NaN"
+    if (x.isInfinite()) return if (x > 0) "Infinity" else "-Infinity"
+    if (x == 0.0) return "0"
+    if (x == floor(x) && abs(x) < 1e18) return x.toLong().toString()
+    val s = x.toString()
+    val e = s.indexOfAny(charArrayOf('E', 'e'))
+    if (e < 0) return s
+    // Expand "1.25E-5" style output to the plain decimal JS prints for 1e-6 <= |x| < 1e21.
+    val exp = s.substring(e + 1).toInt()
+    val mantissa = s.substring(0, e)
+    val sign = if (mantissa.startsWith("-")) "-" else ""
+    val digits = mantissa.removePrefix("-").replace(".", "").trimEnd('0').ifEmpty { "0" }
+    val point = mantissa.removePrefix("-").indexOf('.').let { if (it < 0) mantissa.removePrefix("-").length else it } + exp
+    if (exp < -6 || exp >= 21) {
+        val m = if (digits.length > 1) digits[0] + "." + digits.substring(1) else digits
+        return "$sign${m}e${if (exp > 0) "+" else ""}$exp"
+    }
+    return sign + when {
+        point <= 0 -> "0." + "0".repeat(-point) + digits
+        point >= digits.length -> digits + "0".repeat(point - digits.length)
+        else -> digits.substring(0, point) + "." + digits.substring(point)
+    }
+}

@@ -21,4 +21,24 @@ class MoneyFormatTest {
         assertEquals(-1, jsRound(-1.5))
         assertEquals(93, jsRound(0.93 * 100))
     }
+
+    @Test fun localeInMatchesToLocaleString() {
+        assertEquals("1,00,000", localeIN(100000.0))
+        assertEquals("1,234.568", localeIN(1234.5678))
+        assertEquals("12.5", localeIN(12.5))
+        assertEquals("0.5", localeIN(0.5))
+        assertEquals("62,000", localeIN(62000.0))
+        assertEquals("-1,500", localeIN(-1500.0))
+        assertEquals("1,00,00,000", localeIN(1e7))
+        assertEquals("1", localeIN(0.9999)) // 3 fraction digits, carried into the integer part
+        assertEquals("0.001", localeIN(0.0005)) // halves expand away from zero (exact binary value 0.000500000000000000010…)
+        assertEquals("58000", jsNum(58000.0))
+        assertEquals("12.5", jsNum(12.5))
+        assertEquals("0.1", jsNum(0.1))
+        assertEquals("0", jsNum(-0.0))
+        assertEquals("-3", jsNum(-3.0))
+        assertEquals("0.30000000000000004", jsNum(0.1 + 0.2))
+        assertEquals("0.0000125", jsNum(1.25e-5))
+        assertEquals("1e-7", jsNum(1e-7))
+    }
 }
