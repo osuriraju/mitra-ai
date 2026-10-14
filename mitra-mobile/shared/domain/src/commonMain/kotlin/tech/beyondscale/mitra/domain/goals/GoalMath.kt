@@ -70,7 +70,7 @@ fun Goal.applyChanges(changes: List<GoalChange>): Goal = changes.fold(this) { g,
 
 /**
  * `POST goals/:id/progress`: numeric goals add [value], other types set it; open milestones with a target at or
- * below the new value are reached on [date]; `{date, current, note}` is appended; the goal completes only when it
+ * below the new value are reached on [date]; `{date, current, note}` is added in date order; the goal completes only when it
  * is not milestone/habit-type, reaches its target and is still active.
  */
 fun Goal.applyProgress(value: Double, note: String?, date: String): Goal {
@@ -80,7 +80,7 @@ fun Goal.applyProgress(value: Double, note: String?, date: String): Goal {
     return copy(
         current = next,
         milestones = ms,
-        progressLog = progressLog + ProgressEntry(date, next, note),
+        progressLog = progressLog.insertByDate(ProgressEntry(date, next, note)),
         state = if (done && state == GoalState.Active) GoalState.Completed else state,
     ).derived()
 }
@@ -90,7 +90,7 @@ fun Goal.withMilestone(m: Milestone): Goal = copy(milestones = milestones + m).d
 
 /**
  * `PATCH goals/:id/milestones/:mid`. Reaching a milestone (no date → a date) on a milestone-type goal appends
- * `{reachedOn, reached count, note = the title before this patch}`; un-reaching removes nothing. Unknown id → unchanged.
+ * `{reachedOn, reached count, note = the title before this patch}` in date order; un-reaching removes nothing. Unknown id → unchanged.
  */
 fun Goal.applyMilestone(id: String, changes: List<MilestoneChange>): Goal {
     val old = milestones.firstOrNull { it.id == id } ?: return this
@@ -106,10 +106,16 @@ fun Goal.applyMilestone(id: String, changes: List<MilestoneChange>): Goal {
     val ms = milestones.map { if (it.id == id) updated else it }
     val reachedNow = updated.reachedOn
     val log = if (!reachedNow.isNullOrEmpty() && old.reachedOn == null && type == GoalType.Milestone) {
-        progressLog + ProgressEntry(reachedNow, ms.count { it.reachedOn != null }.toDouble(), old.title)
+        progressLog.insertByDate(ProgressEntry(reachedNow, ms.count { it.reachedOn != null }.toDouble(), old.title))
     } else progressLog
     return copy(milestones = ms, progressLog = log).derived()
 }
 
 /** `DELETE goals/:id/milestones/:mid`. */
 fun Goal.withoutMilestone(id: String): Goal = copy(milestones = milestones.filter { it.id != id }).derived()
+
+/** Adds [e] after every entry dated on or before it — the server returns `progress` ordered `date asc`, stable for ties. */
+private fun List<ProgressEntry>.insertByDate(e: ProgressEntry): List<ProgressEntry> {
+    val at = indexOfLast { it.date <= e.date } + 1
+    return take(at) + e + drop(at)
+}

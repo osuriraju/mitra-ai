@@ -90,6 +90,11 @@ data class GoalDraft(
     val milestoneTitles: List<String> = emptyList(),
 )
 
+/**
+ * One field of a PATCH. The nested `Unit` shadows `kotlin.Unit` and `ReviewEvery` shadows the model enum of that name:
+ * always refer to them qualified (`GoalChange.Unit`) and never star-import
+ * `GoalChange.*`.
+ */
 sealed interface GoalChange {
     data class Name(val v: String) : GoalChange
     data class Type(val v: GoalType) : GoalChange

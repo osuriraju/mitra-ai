@@ -61,8 +61,15 @@ class HabitCheckTest {
         assertEquals(1, fresh.value)
         assertNull(fresh.undoValue)
         assertTrue(fresh.streakMilestone)
+    }
+
+    @Test fun completeIsANoOpWhenAlreadyDone() {
         val already = habitComplete(readBinary.copy(logs = mapOf(TODAY to 1, addDays(TODAY, -1) to 1)), TODAY)
-        assertFalse(already.reachedTarget)
-        assertEquals(1, already.undoValue)
+        assertEquals(HabitTap("r", TODAY, 1, snack = null, undoValue = 1, canUndo = false, reachedTarget = false, streakMilestone = false), already)
+        // an over-target day is never lowered back to the target
+        val over = habitComplete(drinkWater.copy(logs = mapOf(TODAY to 10)), TODAY)
+        assertEquals(10, over.value)
+        assertNull(over.snack)
+        assertFalse(over.canUndo)
     }
 }

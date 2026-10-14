@@ -133,6 +133,22 @@ class GoalMathTest {
         assertEquals(reached, reached.applyMilestone("nope", listOf(MilestoneChange.ReachedOn(TODAY))))
     }
 
+    @Test fun progressEntriesStayInDateOrder() {
+        val ms = listOf(Milestone("m1", "First"), Milestone("m2", "Second"))
+        val g = goal(type = GoalType.Milestone, milestones = ms, progressLog = listOf(ProgressEntry("2026-09-01", 1.0, "a"), ProgressEntry("2026-10-01", 1.0, "b"))).derived()
+        // a back-dated reach lands between the existing entries, like the server's `date asc` order
+        val back = g.applyMilestone("m1", listOf(MilestoneChange.ReachedOn("2026-09-15")))
+        assertEquals(listOf("2026-09-01", "2026-09-15", "2026-10-01"), back.progressLog.map { it.date })
+        // equal dates keep insertion order (new entry after the existing one)
+        val same = g.applyMilestone("m2", listOf(MilestoneChange.ReachedOn("2026-09-01")))
+        assertEquals(listOf("a", "Second", "b"), same.progressLog.map { it.note })
+        // the oldest date goes first
+        assertEquals("2026-08-01", g.applyMilestone("m1", listOf(MilestoneChange.ReachedOn("2026-08-01"))).progressLog.first().date)
+        // progress dated before the last entry is sorted in too
+        val logged = fund.copy(progressLog = listOf(ProgressEntry("2026-09-01", 1.0), ProgressEntry("2026-11-01", 2.0))).applyProgress(5.0, null, TODAY)
+        assertEquals(listOf("2026-09-01", TODAY, "2026-11-01"), logged.progressLog.map { it.date })
+    }
+
     @Test fun milestoneTypeProgressStoresValueButShowsCount() {
         val g = goal(type = GoalType.Milestone, milestones = listOf(Milestone("m1", "A", reachedOn = "2026-09-01"), Milestone("m2", "B"))).derived()
         val logged = g.applyProgress(9.0, "note", TODAY)

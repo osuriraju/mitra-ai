@@ -31,7 +31,16 @@ class MoneyFormatTest {
         assertEquals("-1,500", localeIN(-1500.0))
         assertEquals("1,00,00,000", localeIN(1e7))
         assertEquals("1", localeIN(0.9999)) // 3 fraction digits, carried into the integer part
-        assertEquals("0.001", localeIN(0.0005)) // halves expand away from zero (exact binary value 0.000500000000000000010…)
+        // V8/ICU round the shortest round-trip decimal half-expand, not the exact binary value
+        assertEquals("0.001", localeIN(0.0005))
+        assertEquals("1.001", localeIN(1.0005)) // exact binary value is 1.000499999…
+        assertEquals("1.235", localeIN(1.2345))
+        assertEquals("1,00,000.001", localeIN(100000.0005))
+        assertEquals("-1.001", localeIN(-1.0005))
+        assertEquals("10", localeIN(9.9995))
+        assertEquals("-10", localeIN(-9.9995))
+        assertEquals("10,00,00,00,00,000", localeIN(1e12))
+        assertEquals("0", localeIN(0.0))
         assertEquals("58000", jsNum(58000.0))
         assertEquals("12.5", jsNum(12.5))
         assertEquals("0.1", jsNum(0.1))
@@ -40,5 +49,8 @@ class MoneyFormatTest {
         assertEquals("0.30000000000000004", jsNum(0.1 + 0.2))
         assertEquals("0.0000125", jsNum(1.25e-5))
         assertEquals("1e-7", jsNum(1e-7))
+        assertEquals("1000000000000", jsNum(1e12))
+        assertEquals("1e+21", jsNum(1e21))
+        assertEquals("100000.0005", jsNum(100000.0005))
     }
 }

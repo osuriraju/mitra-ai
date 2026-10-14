@@ -42,13 +42,19 @@ fun habitTap(h: Habit, today: String): HabitTap {
     )
 }
 
-/** Swipe right / "Done today": log the full target, Undo back to the previous value (`null` when there was none). */
+/**
+ * Swipe right / "Done today": log the full target, Undo back to the previous value (`null` when there was none).
+ * A day that is already done is left alone: the tap keeps the current value (an over-target 10/8 is never lowered),
+ * with no snack and no Undo — callers may skip the write when `value == habitValue(h, today)`.
+ */
 fun habitComplete(h: Habit, today: String): HabitTap {
     val before = h.logs[today]
-    val reached = !habitDone(h, today)
+    if (habitDone(h, today)) {
+        return HabitTap(h.id, today, before, snack = null, undoValue = before, canUndo = false, reachedTarget = false, streakMilestone = false)
+    }
     return HabitTap(
         h.id, today, h.target, "${h.name} ✓", undoValue = before, canUndo = true,
-        reachedTarget = reached, streakMilestone = reached && milestoneAfter(h, today, h.target),
+        reachedTarget = true, streakMilestone = milestoneAfter(h, today, h.target),
     )
 }
 

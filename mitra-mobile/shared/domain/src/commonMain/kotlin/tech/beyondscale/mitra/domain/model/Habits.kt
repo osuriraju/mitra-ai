@@ -59,6 +59,11 @@ data class HabitDraft(
     val gentle: Boolean = true,
 )
 
+/**
+ * One field of a PATCH. The nested `Unit` shadows `kotlin.Unit` and `TimeOfDay` shadows the model enum of that name:
+ * always refer to them qualified (`HabitChange.Unit`) and never star-import
+ * `HabitChange.*`.
+ */
 sealed interface HabitChange {
     data class Name(val v: String) : HabitChange
     data class Type(val v: HabitType) : HabitChange

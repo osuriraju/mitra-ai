@@ -80,60 +80,72 @@ fun signedInrPaise(paise: Long): String = (if (paise < 0) "\u2212" else "+") + i
 /* Goal numbers (plain doubles, not paise) — ports of `toLocaleString('en-IN')` and `String(n)`. */
 
 /**
- * round(frac * f) half-up on the exact binary value of [frac] (0 <= frac < 1, f <= 1000), like [roundHalfUpExact]
- * but in unsigned arithmetic: 2 * f * m < 2^64 for m < 2^53.
+ * The shortest round-trip decimal of |x| (finite, non-zero) as significant digits plus the decimal point's position:
+ * 1.0005 → ("10005", 1), 5.0E-4 → ("5", -3), 1.0E7 → ("1", 8).
+ *
+ * Built on `Double.toString`, which on older JVMs is not always the shortest representation for some values near
+ * 1e23 (JDK-4511638); goal numbers are capped at 1e12 by the server, far below that.
  */
-private fun roundFractionHalfUp(frac: Double, f: Long): Long {
-    if (frac == 0.0) return 0
-    val bits = frac.toRawBits()
-    val expBits = ((bits ushr 52) and 0x7FF).toInt()
-    val raw = bits and ((1L shl 52) - 1)
-    val m = if (expBits == 0) raw else raw or (1L shl 52)
-    val s = if (expBits == 0) 1074 else 1075 - expBits // frac < 1, so s > 0
-    val t = 2uL * f.toULong() * m.toULong()
-    val q = if (s >= 64) 0uL else t shr s
-    return ((q + 1uL) / 2uL).toLong()
+private fun shortestDigits(a: Double): Pair<String, Int> {
+    val s = abs(a).toString()
+    val e = s.indexOfAny(charArrayOf('E', 'e'))
+    val mantissa = if (e < 0) s else s.substring(0, e)
+    val exp = if (e < 0) 0 else s.substring(e + 1).toInt()
+    val dot = mantissa.indexOf('.').let { if (it < 0) mantissa.length else it }
+    var digits = mantissa.replace(".", "")
+    var point = dot + exp
+    val lead = digits.length - digits.trimStart('0').length
+    digits = digits.substring(lead).trimEnd('0').ifEmpty { "0" }
+    point -= lead
+    return digits to point
+}
+
+/** Plain-decimal integer and fraction digit strings of |x| from [shortestDigits]: 1.0005 → ("1", "0005"). */
+private fun plainParts(a: Double): Pair<String, String> {
+    val (digits, point) = shortestDigits(a)
+    return when {
+        point <= 0 -> "0" to "0".repeat(-point) + digits
+        point >= digits.length -> digits + "0".repeat(point - digits.length) to ""
+        else -> digits.substring(0, point) to digits.substring(point)
+    }
 }
 
 /**
- * `x.toLocaleString('en-IN')`: Indian digit grouping, at most 3 fraction digits (halves away from zero on the
- * exact value, like Intl's default `halfExpand`), trailing zeros dropped, minus sign kept.
- * `100000.0 → "1,00,000"`, `1234.5678 → "1,234.568"`, `0.5 → "0.5"`.
+ * `x.toLocaleString('en-IN')`: Indian digit grouping, at most 3 fraction digits, trailing zeros dropped, minus sign
+ * kept. Like V8/ICU it rounds the shortest round-trip decimal half-expand (1.0005 → "1.001", 9.9995 → "10"), not the
+ * exact binary value. `100000.0 → "1,00,000"`, `1234.5678 → "1,234.568"`, `0.5 → "0.5"`.
  */
 fun localeIN(x: Double): String {
     if (x.isNaN()) return "NaN"
     val negative = x < 0.0 || (x == 0.0 && 1.0 / x < 0.0)
     if (x.isInfinite()) return if (negative) "-∞" else "∞"
-    val a = abs(x)
-    var whole = floor(a).toLong()
-    var milli = roundFractionHalfUp(a - floor(a), 1000)
-    if (milli == 1000L) { whole += 1; milli = 0 }
-    val fraction = if (milli == 0L) "" else "." + milli.toString().padStart(3, '0').trimEnd('0')
-    return (if (negative) "-" else "") + groupIndian(whole) + fraction
+    val sign = if (negative) "-" else ""
+    if (x == 0.0) return sign + "0"
+    val (intPart, frac) = plainParts(x)
+    var whole = intPart.toLong()
+    var milli = frac.take(3).padEnd(3, '0').toInt()
+    if (frac.length > 3 && frac[3] >= '5') milli += 1
+    if (milli == 1000) { whole += 1; milli = 0 }
+    val fraction = if (milli == 0) "" else "." + milli.toString().padStart(3, '0').trimEnd('0')
+    return sign + groupIndian(whole) + fraction
 }
 
-/** JavaScript `String(n)` for the magnitudes goals use: `58000.0 → "58000"`, `12.5 → "12.5"`, `-0.0 → "0"`. */
+/**
+ * JavaScript `String(n)` for the magnitudes goals use: `58000.0 → "58000"`, `12.5 → "12.5"`, `-0.0 → "0"`.
+ * Relies on `Double.toString` being the shortest round-trip decimal, which older JVMs miss for a few values near
+ * 1e23 (see [shortestDigits]); goal numbers are capped at 1e12 by the server.
+ */
 fun jsNum(x: Double): String {
     if (x.isNaN()) return "NaN"
     if (x.isInfinite()) return if (x > 0) "Infinity" else "-Infinity"
     if (x == 0.0) return "0"
-    if (x == floor(x) && abs(x) < 1e18) return x.toLong().toString()
-    val s = x.toString()
-    val e = s.indexOfAny(charArrayOf('E', 'e'))
-    if (e < 0) return s
-    // Expand "1.25E-5" style output to the plain decimal JS prints for 1e-6 <= |x| < 1e21.
-    val exp = s.substring(e + 1).toInt()
-    val mantissa = s.substring(0, e)
-    val sign = if (mantissa.startsWith("-")) "-" else ""
-    val digits = mantissa.removePrefix("-").replace(".", "").trimEnd('0').ifEmpty { "0" }
-    val point = mantissa.removePrefix("-").indexOf('.').let { if (it < 0) mantissa.removePrefix("-").length else it } + exp
+    val sign = if (x < 0) "-" else ""
+    val (digits, point) = shortestDigits(x)
+    val exp = point - 1
     if (exp < -6 || exp >= 21) {
         val m = if (digits.length > 1) digits[0] + "." + digits.substring(1) else digits
         return "$sign${m}e${if (exp > 0) "+" else ""}$exp"
     }
-    return sign + when {
-        point <= 0 -> "0." + "0".repeat(-point) + digits
-        point >= digits.length -> digits + "0".repeat(point - digits.length)
-        else -> digits.substring(0, point) + "." + digits.substring(point)
-    }
+    val (intPart, frac) = plainParts(x)
+    return sign + intPart + (if (frac.isEmpty()) "" else ".$frac")
 }
