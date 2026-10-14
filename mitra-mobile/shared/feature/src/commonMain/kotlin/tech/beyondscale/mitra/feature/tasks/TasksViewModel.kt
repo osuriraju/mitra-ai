@@ -186,14 +186,22 @@ class TasksViewModel(private val tasks: TasksRepository, private val clock: AppC
             }
             is TasksAction.RestoreDeleted -> launch { tasks.restore(a.removed) }
             is TasksAction.CreateProject -> {
-                if (validateProjectName(a.name) != null) return
+                if (validateProjectName(a.name) != null || creatingProject) return
+                creatingProject = true
                 launch {
-                    val p = tasks.createProject(a.name.trim(), a.emoji)
-                    queue.send(UiEvent.Snack("Project created · ${p.name}"))
+                    try {
+                        val p = tasks.createProject(a.name.trim(), a.emoji)
+                        queue.send(UiEvent.Snack("Project created · ${p.name}"))
+                    } finally {
+                        creatingProject = false
+                    }
                 }
             }
         }
     }
+
+    /** Set synchronously on CreateProject so a double tap on Save can't create a duplicate. */
+    private var creatingProject = false
 
     private fun launch(block: suspend () -> Unit) {
         viewModelScope.launch { block() }

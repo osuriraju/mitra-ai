@@ -42,6 +42,8 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import org.koin.compose.viewmodel.koinViewModel
 import org.koin.core.parameter.parametersOf
@@ -67,6 +69,8 @@ fun FocusRoute(
     EventEffect(vm.events, vm::onAction, onClose)
     val open by rememberUpdatedState(onOpenTask)
     LaunchedEffect(vm) { vm.openTask.collect { open(it) } }
+    LifecycleEventEffect(Lifecycle.Event.ON_STOP) { vm.onStop() }
+    LifecycleEventEffect(Lifecycle.Event.ON_START) { vm.onStart() }
     FocusScreen(state, vm::onAction, onClose)
 }
 

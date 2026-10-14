@@ -72,10 +72,15 @@ fun ProjectFormSheet(
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val scope = rememberCoroutineScope()
     val close: () -> Unit = { scope.launch { sheetState.hide() }.invokeOnCompletion { onDismiss() } }
+    // One-shot: a second Save tap during the hide animation must not call onSave again.
+    var saved by remember { mutableStateOf(false) }
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState, containerColor = Mitra.colors.bg) {
         ProjectForm(title, confirmLabel, initialName, initialEmoji, onCancel = close) { name, emoji ->
-            onSave(name, emoji)
-            close()
+            if (!saved) {
+                saved = true
+                onSave(name, emoji)
+                close()
+            }
         }
     }
 }

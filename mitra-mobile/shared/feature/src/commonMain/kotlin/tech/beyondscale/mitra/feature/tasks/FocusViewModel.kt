@@ -2,6 +2,7 @@ package tech.beyondscale.mitra.feature.tasks
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
@@ -79,6 +80,8 @@ class FocusViewModel(
     private val timer = MutableStateFlow(Timer())
     private var ticker: Job? = null
     private var completing = false
+    /** The screen is backgrounded: no ticking, so a stale "Session complete" can't fire. */
+    private var stopped = false
 
     private val queue = EventQueue<FocusAction>()
     val events: Flow<UiEvent<FocusAction>> = queue.events
@@ -121,6 +124,18 @@ class FocusViewModel(
         }
     }
 
+    /** Screen stopped: pause the countdown, keeping the remaining time and the running flag. */
+    fun onStop() {
+        stopped = true
+        ticker?.cancel()
+    }
+
+    /** Screen started again: resume the countdown if it was running. */
+    fun onStart() {
+        stopped = false
+        if (timer.value.running) startTicker()
+    }
+
     private fun current(): Task? = latest?.queue?.getOrNull(timer.value.idx)
 
     /** Restarts the countdown whenever the current task changes (web: effect on `cur?.id`). */
@@ -135,6 +150,7 @@ class FocusViewModel(
 
     private fun startTicker() {
         ticker?.cancel()
+        if (stopped) return
         ticker = viewModelScope.launch {
             while (timer.value.running) {
                 delay(1_000)
@@ -179,6 +195,11 @@ class FocusViewModel(
         viewModelScope.launch {
             try {
                 tasks.setDone(cur.id, true)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                queue.send(UiEvent.Snack("Couldn't complete the task"))
+                return@launch
             } finally {
                 completing = false
             }

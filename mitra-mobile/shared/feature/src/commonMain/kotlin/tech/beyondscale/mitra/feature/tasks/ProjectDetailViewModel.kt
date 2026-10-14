@@ -3,6 +3,7 @@ package tech.beyondscale.mitra.feature.tasks
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
@@ -50,7 +51,12 @@ class ProjectDetailViewModel(private val id: String, private val tasks: TasksRep
     private val queue = EventQueue<ProjectDetailAction>()
     val events: Flow<UiEvent<ProjectDetailAction>> = queue.events
 
-    val state: StateFlow<ProjectDetailUiState> = combine(tasks.tasks, tasks.projects, clock.dayFlow(), ::build)
+    /** Set once Delete starts: the project vanishing from the flow is then expected, not "not found". */
+    private val deleting = MutableStateFlow(false)
+    /** Set synchronously on Edit so a double tap on Save can't launch a second update. */
+    private var editing = false
+
+    val state: StateFlow<ProjectDetailUiState> = combine(tasks.tasks, tasks.projects, clock.dayFlow(), deleting, ::build)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ProjectDetailUiState())
 
     fun onAction(a: ProjectDetailAction) {
@@ -67,13 +73,19 @@ class ProjectDetailViewModel(private val id: String, private val tasks: TasksRep
             }
             is ProjectDetailAction.SetDue -> launch { tasks.update(a.id, listOf(TaskChange.Due(a.due))) }
             is ProjectDetailAction.Edit -> {
-                if (validateProjectName(a.name) != null) return
+                if (validateProjectName(a.name) != null || editing) return
+                editing = true
                 launch {
-                    tasks.updateProject(id, a.name.trim(), a.emoji)
-                    queue.send(UiEvent.Snack("Project updated"))
+                    try {
+                        tasks.updateProject(id, a.name.trim(), a.emoji)
+                        queue.send(UiEvent.Snack("Project updated"))
+                    } finally {
+                        editing = false
+                    }
                 }
             }
             ProjectDetailAction.Delete -> launch {
+                deleting.value = true
                 tasks.deleteProject(id)
                 queue.send(UiEvent.Snack("Project deleted"))
                 queue.send(UiEvent.Close)
@@ -98,8 +110,9 @@ class ProjectDetailViewModel(private val id: String, private val tasks: TasksRep
         queue.send(UiEvent.Snack("Completed · ${t.title}", ProjectDetailAction.UndoComplete(taskId, spawned)))
     }
 
-    private fun build(all: List<Task>, projects: List<Project>, today: String): ProjectDetailUiState {
-        val p = projects.firstOrNull { it.id == id } ?: return ProjectDetailUiState(loaded = true, notFound = true, today = today)
+    private fun build(all: List<Task>, projects: List<Project>, today: String, deleting: Boolean): ProjectDetailUiState {
+        val p = projects.firstOrNull { it.id == id }
+            ?: return ProjectDetailUiState(loaded = true, notFound = !deleting, today = today)
         val byId = projects.associateBy { it.id }
         val stats = projectStats(all, id)
         return ProjectDetailUiState(

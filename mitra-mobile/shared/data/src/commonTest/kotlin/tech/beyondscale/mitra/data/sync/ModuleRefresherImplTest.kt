@@ -81,6 +81,18 @@ class ModuleRefresherImplTest {
         assertEquals(listOf("tasks"), calls)
     }
 
+    @Test fun deferredRefreshIsNotPostponedByABackwardClockJump() = runTest {
+        refresher()
+        session.value = SessionState.SignedIn(testUser())
+        runCurrent()
+        calls.clear()
+        at(-1_000) // wall clock jumps back 1000s
+        drained.emit(Unit); runCurrent()
+        assertEquals(emptyList(), calls)
+        advanceTimeBy(60_001); runCurrent()
+        assertEquals(listOf("tasks"), calls)
+    }
+
     @Test fun signOutCancelsADeferredRefresh() = runTest {
         refresher()
         session.value = SessionState.SignedIn(testUser())

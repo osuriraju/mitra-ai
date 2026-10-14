@@ -57,7 +57,8 @@ class ModuleRefresherImpl(
                 lastRun[USER] = now
                 (modules.keys - USER).forEach { start(it, now) }
             }
-            // Logout clears the device: whoever signs in next (even the same account) needs a full refresh.
+            // Sign-out (or a 401 / expired session, where data is kept) ends this session: whoever signs in next, even the
+            // same account, gets a full refresh.
             SessionState.SignedOut -> { userId = null; reset() }
             SessionState.Unknown -> Unit
         }
@@ -71,7 +72,8 @@ class ModuleRefresherImpl(
             when {
                 last == null || now - last >= minIntervalMs -> start(name, now)
                 deferIfFresh && deferred[name]?.isActive != true -> deferred[name] = scope.launch {
-                    delay(last + minIntervalMs - now)
+                    // Clamped so a backward wall-clock jump can't postpone the refresh beyond one window.
+                    delay((last + minIntervalMs - now).coerceIn(0, minIntervalMs))
                     mutex.withLock {
                         deferred.remove(name)
                         if (userId != null) start(name, nowMs())

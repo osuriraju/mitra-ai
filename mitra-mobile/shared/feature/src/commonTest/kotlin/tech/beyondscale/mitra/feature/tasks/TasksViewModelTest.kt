@@ -1,5 +1,6 @@
 package tech.beyondscale.mitra.feature.tasks
 
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.launch
@@ -229,6 +230,21 @@ class TasksViewModelTest : ViewModelTest() {
         assertEquals(listOf("refresh"), repo.calls)
         assertEquals(emptyList(), h.events)
         assertFalse(h.vm.state.value.refreshing)
+    }
+
+    @Test fun doubleCreateProjectCreatesOnce() = runTest {
+        val gate = CompletableDeferred<Unit>()
+        val repo = FakeTasksRepository(fixtures(), listOf(project)).apply { projectGate = gate }
+        val h = start(repo)
+        h.vm.onAction(TasksAction.CreateProject("Work", "💼"))
+        h.vm.onAction(TasksAction.CreateProject("Work", "💼"))
+        runCurrent()
+        gate.complete(Unit)
+        runCurrent()
+        assertEquals(listOf("createProject:Work"), repo.calls)
+        h.vm.onAction(TasksAction.CreateProject("Home", "🏠")) // a later, separate create still works
+        runCurrent()
+        assertEquals(listOf("createProject:Work", "createProject:Home"), repo.calls)
     }
 
     @Test fun createProjectAnnounces() = runTest {

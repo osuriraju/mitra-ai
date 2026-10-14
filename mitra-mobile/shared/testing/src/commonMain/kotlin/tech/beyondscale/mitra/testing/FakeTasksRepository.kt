@@ -1,5 +1,6 @@
 package tech.beyondscale.mitra.testing
 
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.update
@@ -24,6 +25,10 @@ class FakeTasksRepository(
     var refreshResult: Outcome<Unit> = Outcome.Ok(Unit)
     /** What `setDone(…, true)` reports as the spawned next occurrence. */
     var spawnOnComplete: String? = null
+    /** When set, `setDone` throws it (after recording the call). */
+    var setDoneError: Exception? = null
+    /** When set, `createProject` and `updateProject` suspend until it completes (to hold a write in flight). */
+    var projectGate: CompletableDeferred<Unit>? = null
     private var taskSeq = 0
     private var projectSeq = 0
 
@@ -47,6 +52,7 @@ class FakeTasksRepository(
 
     override suspend fun setDone(id: String, done: Boolean): String? {
         calls += "done:$id:$done"
+        setDoneError?.let { throw it }
         taskFlow.update { list ->
             list.map { if (it.id == id) it.copy(done = done, status = if (done) TaskStatus.Done else TaskStatus.Todo, completedAt = if (done) today else null) else it }
         }
@@ -66,6 +72,7 @@ class FakeTasksRepository(
     }
 
     override suspend fun createProject(name: String, emoji: String): Project {
+        projectGate?.await()
         val p = Project("proj${++projectSeq}", name.trim(), emoji)
         calls += "createProject:${p.name}"
         projectFlow.update { it + p }
@@ -73,6 +80,7 @@ class FakeTasksRepository(
     }
 
     override suspend fun updateProject(id: String, name: String, emoji: String) {
+        projectGate?.await()
         calls += "updateProject:$id:$name:$emoji"
         projectFlow.update { list -> list.map { if (it.id == id) it.copy(name = name, emoji = emoji) else it } }
     }

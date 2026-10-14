@@ -136,6 +136,44 @@ class FocusViewModelTest : ViewModelTest() {
         assertTrue(h.vm.state.value.empty)
     }
 
+    @Test fun stoppedScreenPausesTheTickerAndStartResumes() = runTest {
+        val h = start(FakeTasksRepository(listOf(c.copy(estMin = 1))))
+        advanceTimeBy(10_001)
+        assertEquals("00:50", h.vm.state.value.clock)
+        h.vm.onStop()
+        runCurrent()
+        advanceTimeBy(120_000)
+        assertEquals("00:50", h.vm.state.value.clock)
+        assertEquals(emptyList(), h.events)
+        h.vm.onStart()
+        advanceTimeBy(1_001)
+        assertEquals("00:49", h.vm.state.value.clock)
+        assertTrue(h.vm.state.value.running)
+    }
+
+    @Test fun startDoesNotResumeAUserPause() = runTest {
+        val h = start(FakeTasksRepository(listOf(c)))
+        h.vm.onAction(FocusAction.PauseResume)
+        h.vm.onStop()
+        h.vm.onStart()
+        advanceTimeBy(5_000)
+        assertFalse(h.vm.state.value.running)
+        assertEquals("25:00", h.vm.state.value.clock)
+    }
+
+    @Test fun doneFailureShowsSnackAndKeepsSession() = runTest {
+        val repo = FakeTasksRepository(listOf(a, b)).apply { setDoneError = IllegalStateException("boom") }
+        val h = start(repo)
+        h.vm.onAction(FocusAction.Done)
+        runCurrent()
+        assertEquals(listOf(UiEvent.Snack<FocusAction>("Couldn't complete the task")), h.events)
+        assertEquals("A", h.vm.state.value.title)
+        repo.setDoneError = null
+        h.vm.onAction(FocusAction.Done) // not stuck in "completing"
+        runCurrent()
+        assertEquals("Email Ravi", h.vm.state.value.title)
+    }
+
     @Test fun pinnedTaskFirst() = runTest {
         val h = start(FakeTasksRepository(listOf(a, b, later)), taskId = "l")
         val s = h.vm.state.value

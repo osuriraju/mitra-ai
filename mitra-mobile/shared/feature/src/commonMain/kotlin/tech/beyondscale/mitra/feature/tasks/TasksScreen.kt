@@ -37,6 +37,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -146,6 +147,8 @@ fun TasksScreen(
     @Suppress("DEPRECATION")
     BackHandler(enabled = state.selection.isNotEmpty()) { onAction(TasksAction.ClearSelection) }
     var confirmDelete by remember { mutableStateOf(false) }
+    // The selection can empty elsewhere (undo, tab switch, back) while the dialog is open.
+    LaunchedEffect(state.selection.isEmpty()) { if (state.selection.isEmpty()) confirmDelete = false }
 
     Column(Modifier.fillMaxSize().imePadding()) {
         MitraTopBar(state.tab.title()) {

@@ -1,5 +1,6 @@
 package tech.beyondscale.mitra.feature.tasks
 
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.launch
@@ -67,6 +68,30 @@ class ProjectDetailViewModelTest : ViewModelTest() {
         assertEquals(listOf("updateProject:p1:Home:🏠"), repo.calls)
         assertEquals("Home", h.vm.state.value.name)
         assertEquals(listOf(UiEvent.Snack<ProjectDetailAction>("Project updated")), h.events)
+    }
+
+    @Test fun deleteNeverReportsNotFound() = runTest {
+        val repo = FakeTasksRepository(fixtures(), listOf(project, other))
+        val h = start(repo)
+        val seen = mutableListOf<ProjectDetailUiState>()
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { h.vm.state.toList(seen) }
+        runCurrent()
+        h.vm.onAction(ProjectDetailAction.Delete)
+        runCurrent()
+        assertTrue(seen.isNotEmpty())
+        assertTrue(seen.none { it.notFound }, "not-found flashed: $seen")
+    }
+
+    @Test fun doubleEditUpdatesOnce() = runTest {
+        val gate = CompletableDeferred<Unit>()
+        val repo = FakeTasksRepository(fixtures(), listOf(project, other)).apply { projectGate = gate }
+        val h = start(repo)
+        h.vm.onAction(ProjectDetailAction.Edit("Home", "🏠"))
+        h.vm.onAction(ProjectDetailAction.Edit("Home", "🏠"))
+        runCurrent()
+        gate.complete(Unit)
+        runCurrent()
+        assertEquals(listOf("updateProject:p1:Home:🏠"), repo.calls)
     }
 
     @Test fun editWithBlankNameIsIgnored() = runTest {
