@@ -8,6 +8,7 @@ import io.ktor.http.HttpStatusCode
 import org.koin.core.Koin
 import org.koin.core.context.startKoin
 import org.koin.core.context.stopKoin
+import org.koin.core.parameter.parametersOf
 import org.koin.dsl.module
 import tech.beyondscale.mitra.data.remote.SecureStore
 import tech.beyondscale.mitra.data.sync.PeriodicSync
@@ -21,6 +22,7 @@ import tech.beyondscale.mitra.feature.auth.ForgotPasswordViewModel
 import tech.beyondscale.mitra.feature.auth.LoginViewModel
 import tech.beyondscale.mitra.feature.auth.SignupViewModel
 import tech.beyondscale.mitra.feature.settings.SettingsViewModel
+import tech.beyondscale.mitra.feature.tasks.FocusViewModel
 import tech.beyondscale.mitra.feature.today.TodayViewModel
 import tech.beyondscale.mitra.testing.ViewModelTest
 import kotlin.test.AfterTest
@@ -59,5 +61,6 @@ class AppModulesTest : ViewModelTest() {
         koin.get<ForgotPasswordViewModel>()
         koin.get<TodayViewModel>()
         koin.get<SettingsViewModel>()
+        koin.get<FocusViewModel> { parametersOf("") }
     }
 }
