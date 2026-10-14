@@ -5,7 +5,7 @@ import tech.beyondscale.mitra.core.dowMon
 import tech.beyondscale.mitra.domain.model.Priority
 import tech.beyondscale.mitra.domain.model.Project
 
-enum class ParsedField { Due, Pri, Project }
+enum class ParsedField { Due, Pri, Project, Amount, Category }
 
 data class ParsedTask(val title: String, val due: String? = null, val pri: Priority? = null, val project: Project? = null)
 
