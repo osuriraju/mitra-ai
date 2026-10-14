@@ -6,11 +6,14 @@ Native Android app for Mitra AI. Shared Kotlin code in `shared/*` is structured 
 - `shared/core` – Outcome/AppError, clock, date + INR formatting (matches the web)
 - `shared/domain` – models, repository interfaces, use cases (no frameworks)
   - `shared/domain/money` – money selectors (safe to spend, budgets, analytics), Today money card, widget model, expense parser
+  - `shared/domain/habits`, `shared/domain/goals` – habit selectors (streaks, due today, week stats, check-off rules), GoalMath (progress, status, milestone auto-ticks — the server's rules)
 - `shared/data` – Ktor API client, SQLDelight DB, offline outbox + SyncEngine, repositories
 - `shared/designsystem` – Noir theme, fonts, icons (generated from the web), components
 - `shared/feature` – screens + ViewModels; `shared/app` – navigation, shell, DI
   - `shared/feature/tasks` – Tasks screen (Inbox / Today / Upcoming / Projects), task form + detail, projects, focus timer, multi-select
   - `shared/feature/money` – Money dashboard, transactions + transaction sheet, budgets, categories, recurring bills, subscriptions
+  - `shared/feature/habits` – Habits list (Today / Week), habit detail, history calendar, habit form
+  - `shared/feature/goals` – Goals list (Active / Review due / Completed), goal detail, milestones, log progress, goal form, goal review pager
   - `quickadd` – Quick Add sheet and natural-language parser
 - `androidApp` – Android entry point, Keystore storage, WorkManager sync
   - `androidApp/widget` – "Mitra · Today" and "Mitra · Money" home-screen widgets (Glance) + Money widget configuration activity
@@ -42,6 +45,16 @@ Long-press the home screen, open Widgets, and add **Mitra · Today**. Tasks can 
 Widgets open the app with these URIs (also usable for testing, e.g. `adb shell am start -n tech.beyondscale.mitra.debug/tech.beyondscale.mitra.android.MainActivity -a android.intent.action.VIEW -d mitra://money`):
 `mitra://task/<id>`, `mitra://tasks`, `mitra://quick-add/task`, `mitra://money`, `mitra://quick-add/expense`, `mitra://money/budgets`.
 
+## Phase 4 – Habits + Goals
+Offline-first habits and goals (same outbox sync). **Habits:** Today / Week lists grouped by time of day, one-tap check-off (binary, count and duration habits; partial counts like `5/8`), swipe right to complete and **swipe left to archive**, both with Undo; habit detail (30-day ring, streaks, 12-week heatmap, trend, recent days with Mark done), an editable month history calendar, and a habit form (schedule presets or custom days, reminder time, goal link, gentle mode). **Delete is in the habit detail menu** (with a confirm). **Goals:** Active / Review due / Completed, goal detail (progress, milestones add / edit / tick with a milestone sheet, progress chart, next action, linked tasks / habits / projects, blockers), Log progress, a goal form, and the goal review as a swipeable step pager (Keep / Adjust target / Pause). Tasks and projects can link a goal (goal chips open it; "Add task" from a goal pre-links it). Today gains a Habits stat plus Habits and Goals cards in the Settings → Today sections order; Quick Add gains **Habit check**.
+
+Notes:
+- Goal numbers (progress, status, milestone auto-ticks, completion) are recomputed locally with the server's rules, so the screen doesn't jump when the echo arrives.
+- Logging goal progress is idempotent: each log carries a client id that stays the same across retries, and the server ignores a repeat.
+- Habit logs older than 400 days are only on the device that wrote them (`GET habits` returns the last 400 days).
+- Habit reminders are stored and synced but don't fire notifications until Phase 6.
+- Habits and Goals live in the More sheet (Habits takes the third tab when Money is off).
+
 ## Run locally
 1. Start the backend (`cd ../mitra-backend && pnpm dev`; needs Postgres + Redis).
 2. `local.properties`: `sdk.dir=…` and `mitra.apiUrl=http://10.0.2.2:4000/api/` (emulator) or `http://<Mac LAN IP>:4000/api/` (phone).
@@ -57,7 +70,10 @@ Debug builds allow cleartext HTTP only to `10.0.2.2`, `localhost`, `127.0.0.1` a
 4. `./gradlew :androidApp:installDebug`
 
 ## Test
-`./gradlew testAndroidHostTest` runs all shared unit tests on the JVM (428 tests at time of writing).
+`./gradlew testAndroidHostTest` runs all shared unit tests on the JVM (661 tests at time of writing).
+
+## Device checklist
+Not yet run on a device (planned once, after Phase 6). The deferred checklists live in the plans: the "Deferred device checklist" sections of `docs/superpowers/plans/2026-10-14-android-phase2-tasks.md` (Tasks), `…-phase3-money.md` (Money) and `…-phase4-habits-goals.md` (Habits + Goals, items 27–43).
 
 ## Icons
 After changing `mitra-frontend/src/lib/icons.ts`:
