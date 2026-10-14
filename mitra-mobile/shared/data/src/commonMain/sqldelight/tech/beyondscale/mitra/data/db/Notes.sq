@@ -1,0 +1,43 @@
+-- Notes and journal entries (journalDate set). Tags are a JSON string array. createdAt/updatedAt are ISO days (the
+-- server sends days), so `sortKey` breaks ties: a refresh writes server order (highest first) and a local edit takes
+-- nextSortKey, which keeps "most recently edited first" exact within a day.
+CREATE TABLE notes (
+  id TEXT NOT NULL PRIMARY KEY,
+  title TEXT NOT NULL,
+  body TEXT NOT NULL,
+  folder TEXT NOT NULL,
+  tags TEXT NOT NULL,
+  journalDate TEXT,
+  ai INTEGER NOT NULL,
+  mood INTEGER,
+  createdAt TEXT NOT NULL,
+  updatedAt TEXT NOT NULL,
+  sortKey INTEGER NOT NULL
+);
+
+CREATE INDEX notes_journal_date ON notes(journalDate);
+CREATE INDEX notes_recent ON notes(updatedAt, sortKey);
+
+selectAll:
+SELECT * FROM notes ORDER BY updatedAt DESC, sortKey DESC;
+
+selectById:
+SELECT * FROM notes WHERE id = ?;
+
+selectIds:
+SELECT id FROM notes;
+
+selectByJournalDate:
+SELECT * FROM notes WHERE journalDate = ? ORDER BY updatedAt DESC, sortKey DESC LIMIT 1;
+
+upsert:
+INSERT OR REPLACE INTO notes VALUES ?;
+
+nextSortKey:
+SELECT COALESCE(MAX(sortKey), 0) + 1 FROM notes;
+
+delete:
+DELETE FROM notes WHERE id = ?;
+
+deleteAll:
+DELETE FROM notes;

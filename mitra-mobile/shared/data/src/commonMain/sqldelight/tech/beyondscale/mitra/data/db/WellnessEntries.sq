@@ -1,0 +1,30 @@
+-- One row per local ISO day; every metric is optional (null = not logged). No parent rows.
+CREATE TABLE wellness_entries (
+  date TEXT NOT NULL PRIMARY KEY,
+  mood INTEGER,
+  sleepStart TEXT,
+  sleepEnd TEXT,
+  steps INTEGER,
+  water INTEGER,
+  weight REAL,
+  note TEXT,
+  savedAt TEXT
+);
+
+selectAll:
+SELECT * FROM wellness_entries ORDER BY date;
+
+selectByDate:
+SELECT * FROM wellness_entries WHERE date = ?;
+
+selectDates:
+SELECT date FROM wellness_entries;
+
+upsert:
+INSERT OR REPLACE INTO wellness_entries VALUES ?;
+
+delete:
+DELETE FROM wellness_entries WHERE date = ?;
+
+deleteAll:
+DELETE FROM wellness_entries;

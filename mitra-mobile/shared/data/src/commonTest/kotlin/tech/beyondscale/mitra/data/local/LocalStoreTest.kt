@@ -4,6 +4,9 @@ import app.cash.turbine.test
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runTest
 import tech.beyondscale.mitra.data.db.Accounts
+import tech.beyondscale.mitra.data.db.Activity
+import tech.beyondscale.mitra.data.db.Ai_actions
+import tech.beyondscale.mitra.data.db.Ai_messages
 import tech.beyondscale.mitra.data.db.Categories
 import tech.beyondscale.mitra.data.db.Goal_progress
 import tech.beyondscale.mitra.data.db.Goals
@@ -11,11 +14,15 @@ import tech.beyondscale.mitra.data.db.Habit_logs
 import tech.beyondscale.mitra.data.db.Habits
 import tech.beyondscale.mitra.data.db.Milestones
 import tech.beyondscale.mitra.data.db.MitraDb
+import tech.beyondscale.mitra.data.db.Notes
 import tech.beyondscale.mitra.data.db.Recurring
 import tech.beyondscale.mitra.data.db.Subscriptions
+import tech.beyondscale.mitra.data.db.Suggestions
 import tech.beyondscale.mitra.data.db.Transactions
 import tech.beyondscale.mitra.data.db.Projects
 import tech.beyondscale.mitra.data.db.Tasks
+import tech.beyondscale.mitra.data.db.Wellness_entries
+import tech.beyondscale.mitra.domain.model.WellnessSettings
 import tech.beyondscale.mitra.data.testDriver
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -84,5 +91,25 @@ class LocalStoreTest {
         assertEquals(0, db.goalsQueries.selectIds().executeAsList().size)
         assertEquals(0, db.milestonesQueries.selectAll().executeAsList().size)
         assertEquals(0, db.goalProgressQueries.selectAll().executeAsList().size)
+    }
+
+    @Test fun clearUserDataRemovesWellnessNotesAndAi() {
+        db.wellnessEntriesQueries.upsert(Wellness_entries("2026-10-14", 3, "23:30", "06:30", 8000, 6, 72.5, null, "2026-10-14"))
+        db.wellnessSettingsQueries.upsert(WellnessSettings().toRow())
+        db.notesQueries.upsert(Notes("n1", "Idea", "", "Ideas", "[]", null, 0, null, "2026-10-14", "2026-10-14", 1))
+        db.activityQueries.upsert(Activity("ac1", "Check-in", "heart", "info", "wellness", null, "2026-10-14T04:30:00.000Z"))
+        db.aiActionsQueries.upsert(Ai_actions("x1", "2026-10-14T04:30:00.000Z", "Created task", "", "Approved by you", "success", 1, 0, null))
+        db.aiMessagesQueries.upsert(Ai_messages("m1", "user", "hi", null, null, 0, 1))
+        db.suggestionsQueries.upsert(Suggestions("sg-1", "bell", "Remind", "", "Habits", "", null, null, "open", 0))
+
+        LocalData(db).clearUserData()
+
+        assertEquals(0, db.wellnessEntriesQueries.selectDates().executeAsList().size)
+        assertEquals(null, db.wellnessSettingsQueries.select().executeAsOneOrNull())
+        assertEquals(0, db.notesQueries.selectIds().executeAsList().size)
+        assertEquals(0, db.activityQueries.selectAll().executeAsList().size)
+        assertEquals(0, db.aiActionsQueries.selectIds().executeAsList().size)
+        assertEquals(0, db.aiMessagesQueries.selectAll().executeAsList().size)
+        assertEquals(0, db.suggestionsQueries.selectAll().executeAsList().size)
     }
 }

@@ -30,7 +30,7 @@ class MigrationTest {
             0,
         )
 
-        assertEquals(4L, MitraDb.Schema.version)
+        assertEquals(5L, MitraDb.Schema.version)
         MitraDb.Schema.migrate(driver, 1, MitraDb.Schema.version)
         val db = MitraDb(driver)
 
@@ -73,7 +73,7 @@ class MigrationTest {
         MitraDb.Schema.migrate(driver, 2, MitraDb.Schema.version)
         val db = MitraDb(driver)
 
-        assertEquals(4L, MitraDb.Schema.version)
+        assertEquals(5L, MitraDb.Schema.version)
         assertEquals("Write", db.tasksQueries.selectById("t1").executeAsOne().title)
         assertEquals("o1", db.outboxQueries.selectAll().executeAsList().single().id)
         assertEquals(0L, db.transactionsQueries.selectIds().executeAsList().size.toLong())
@@ -105,7 +105,7 @@ class MigrationTest {
         MitraDb.Schema.migrate(driver, 3, 4)
         val db = MitraDb(driver)
 
-        assertEquals(4L, MitraDb.Schema.version)
+        assertEquals(5L, MitraDb.Schema.version)
         assertEquals(12345L, db.transactionsQueries.selectById("tx1").executeAsOne().amountPaise)
         assertEquals("o1", db.outboxQueries.selectAll().executeAsList().single().id)
         val count = driver.executeQuery(null, "SELECT count(*) FROM habits", { c ->
@@ -125,5 +125,73 @@ class MigrationTest {
         assertEquals(1, db.habitLogsQueries.selectForHabit("h1").executeAsList().size)
         assertEquals(listOf("m1"), db.milestonesQueries.selectForGoal("g1").executeAsList().map { it.id })
         assertEquals(1, db.goalProgressQueries.selectAll().executeAsList().size)
+    }
+
+    @Test fun phase4DatabaseUpgradesInPlace() {
+        val driver = JdbcSqliteDriver(JdbcSqliteDriver.IN_MEMORY)
+        v1.forEach { driver.execute(null, it, 0) }
+        MitraDb.Schema.migrate(driver, 1, 4) // now a genuine v4 database
+        driver.execute(
+            null,
+            "INSERT INTO habits(id, name, type, target, unit, icon, timeOfDay, days, gentle, archived, createdAt, position) " +
+                "VALUES ('h1', 'Read', 'binary', 1, '', 'book', 'anytime', '1111111', 1, 0, '', 0)",
+            0,
+        )
+        driver.execute(null, "INSERT INTO habit_logs(habitId, date, value) VALUES ('h1', '2026-10-14', 1)", 0)
+        driver.execute(
+            null,
+            "INSERT INTO outbox(id, entity, method, path, body, coalesceKey, createdAt, entityId) " +
+                "VALUES ('o1', 'habit-log', 'PUT', 'habits/h1/logs', '{}', 'habit-log:h1:2026-10-14', 0, 'h1')",
+            0,
+        )
+
+        MitraDb.Schema.migrate(driver, 4, 5)
+        val db = MitraDb(driver)
+
+        assertEquals(5L, MitraDb.Schema.version)
+        assertEquals("Read", db.habitsQueries.selectById("h1").executeAsOne().name)
+        assertEquals(1, db.habitLogsQueries.selectForHabit("h1").executeAsList().size)
+        assertEquals("o1", db.outboxQueries.selectAll().executeAsList().single().id)
+
+        // New tables work through the generated queries.
+        db.wellnessEntriesQueries.upsert(Wellness_entries("2026-10-14", 3, "23:30", "06:30", null, 6, null, null, "2026-10-14"))
+        db.wellnessSettingsQueries.upsert(
+            Wellness_settings(1, 170, 450, 8000, 8, 1, 1, 1, 1, 1, 0, 1, "07:30", "21:00"),
+        )
+        db.notesQueries.upsert(Notes("n1", "Journal", "", "Journal", "[]", "2026-10-14", 0, 3, "2026-10-14", "2026-10-14", 1))
+        db.activityQueries.upsert(Activity("ac1", "Check-in", "heart", "info", "wellness", null, "2026-10-14T04:30:00.000Z"))
+        db.aiActionsQueries.upsert(Ai_actions("x1", "2026-10-14T04:30:00.000Z", "Created task", "", "Approved by you", "success", 1, 0, null))
+        db.aiMessagesQueries.upsert(Ai_messages("m1", "user", "hi", null, null, 0, 1))
+        db.suggestionsQueries.upsert(Suggestions("sg-1", "bell", "Remind", "", "Habits", "", null, null, "open", 0))
+        assertEquals(3L, db.wellnessEntriesQueries.selectByDate("2026-10-14").executeAsOne().mood)
+        assertEquals(450L, db.wellnessSettingsQueries.select().executeAsOne().sleepTarget)
+        assertEquals("n1", db.notesQueries.selectByJournalDate("2026-10-14").executeAsOne().id)
+        assertEquals(2L, db.notesQueries.nextSortKey().executeAsOne())
+        assertEquals(1, db.activityQueries.selectAll().executeAsList().size)
+        assertEquals(listOf("x1"), db.aiActionsQueries.selectIds().executeAsList())
+        assertEquals(1, db.aiMessagesQueries.selectAll().executeAsList().size)
+        db.suggestionsQueries.setState("dismissed", "sg-1")
+        assertEquals("dismissed", db.suggestionsQueries.selectById("sg-1").executeAsOne().state)
+    }
+
+    /** The v4→v5 migration must create exactly what a fresh install gets from the .sq files. */
+    @Test fun phase5MigrationMatchesFreshSchema() {
+        fun ddl(driver: JdbcSqliteDriver): Map<String, String> = driver.executeQuery(null, "SELECT name, sql FROM sqlite_master WHERE sql IS NOT NULL", { c ->
+            val m = mutableMapOf<String, String>()
+            while (c.next().value) m[c.getString(0)!!] = c.getString(1)!!.replace(Regex("\\s+"), " ")
+            app.cash.sqldelight.db.QueryResult.Value(m)
+        }, 0).value
+        val fresh = JdbcSqliteDriver(JdbcSqliteDriver.IN_MEMORY).also { MitraDb.Schema.create(it) }
+        val migrated = JdbcSqliteDriver(JdbcSqliteDriver.IN_MEMORY).also { d ->
+            v1.forEach { d.execute(null, it, 0) }
+            MitraDb.Schema.migrate(d, 1, 5)
+        }
+        val phase5 = listOf(
+            "wellness_entries", "wellness_settings", "notes", "notes_journal_date", "notes_recent", "activity", "activity_at",
+            "ai_actions", "ai_actions_at", "ai_messages", "ai_messages_created", "suggestions",
+        )
+        val a = ddl(fresh)
+        val b = ddl(migrated)
+        phase5.forEach { assertEquals(a[it], b[it], it); assertNotNull(a[it], it) }
     }
 }

@@ -46,7 +46,7 @@ private fun roundHalfUpExact(a: Double, f: Long): Long {
 }
 
 /** JS Number.prototype.toFixed for the magnitudes we format. */
-internal fun toFixed(x: Double, digits: Int): String {
+fun toFixed(x: Double, digits: Int): String {
     var factor = 1L
     repeat(digits) { factor *= 10 }
     val scaled = roundHalfUpExact(abs(x), factor)

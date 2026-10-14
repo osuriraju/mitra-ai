@@ -1,0 +1,98 @@
+-- v4 (Phase 4 Habits + Goals) → v5 (Phase 5 Wellness + Notes + AI)
+CREATE TABLE wellness_entries (
+  date TEXT NOT NULL PRIMARY KEY,
+  mood INTEGER,
+  sleepStart TEXT,
+  sleepEnd TEXT,
+  steps INTEGER,
+  water INTEGER,
+  weight REAL,
+  note TEXT,
+  savedAt TEXT
+);
+
+CREATE TABLE wellness_settings (
+  id INTEGER NOT NULL PRIMARY KEY,
+  height INTEGER NOT NULL,
+  sleepTarget INTEGER NOT NULL,
+  stepsTarget INTEGER NOT NULL,
+  waterTarget INTEGER NOT NULL,
+  trackMood INTEGER NOT NULL,
+  trackSleep INTEGER NOT NULL,
+  trackSteps INTEGER NOT NULL,
+  trackWater INTEGER NOT NULL,
+  trackBmi INTEGER NOT NULL,
+  shareAI INTEGER NOT NULL,
+  showOnToday INTEGER NOT NULL,
+  morningReminder TEXT NOT NULL,
+  eveningReminder TEXT NOT NULL
+);
+
+CREATE TABLE notes (
+  id TEXT NOT NULL PRIMARY KEY,
+  title TEXT NOT NULL,
+  body TEXT NOT NULL,
+  folder TEXT NOT NULL,
+  tags TEXT NOT NULL,
+  journalDate TEXT,
+  ai INTEGER NOT NULL,
+  mood INTEGER,
+  createdAt TEXT NOT NULL,
+  updatedAt TEXT NOT NULL,
+  sortKey INTEGER NOT NULL
+);
+
+CREATE INDEX notes_journal_date ON notes(journalDate);
+
+CREATE INDEX notes_recent ON notes(updatedAt, sortKey);
+
+CREATE TABLE activity (
+  id TEXT NOT NULL PRIMARY KEY,
+  text TEXT NOT NULL,
+  icon TEXT NOT NULL,
+  tone TEXT NOT NULL,
+  module TEXT,
+  entityId TEXT,
+  at TEXT NOT NULL
+);
+
+CREATE INDEX activity_at ON activity(at);
+
+CREATE TABLE ai_actions (
+  id TEXT NOT NULL PRIMARY KEY,
+  at TEXT NOT NULL,
+  action TEXT NOT NULL,
+  detail TEXT NOT NULL,
+  state TEXT NOT NULL,
+  tone TEXT NOT NULL,
+  revertible INTEGER NOT NULL,
+  reverted INTEGER NOT NULL,
+  revertJson TEXT
+);
+
+CREATE INDEX ai_actions_at ON ai_actions(at);
+
+CREATE TABLE ai_messages (
+  id TEXT NOT NULL PRIMARY KEY,
+  who TEXT NOT NULL,
+  text TEXT NOT NULL,
+  chartJson TEXT,
+  proposalJson TEXT,
+  applied INTEGER NOT NULL,
+  createdAt INTEGER NOT NULL
+);
+
+CREATE INDEX ai_messages_created ON ai_messages(createdAt);
+
+CREATE TABLE suggestions (
+  id TEXT NOT NULL PRIMARY KEY,
+  icon TEXT NOT NULL,
+  title TEXT NOT NULL,
+  why TEXT NOT NULL,
+  source TEXT NOT NULL,
+  tone TEXT NOT NULL,
+  preview TEXT,
+  actionJson TEXT,
+  state TEXT NOT NULL,
+  position INTEGER NOT NULL
+);

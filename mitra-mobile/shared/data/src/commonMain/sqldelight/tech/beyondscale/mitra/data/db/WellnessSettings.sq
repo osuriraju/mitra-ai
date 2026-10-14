@@ -1,0 +1,26 @@
+-- A single row (id = 1) once the server copy is cached; absent = use the domain defaults.
+CREATE TABLE wellness_settings (
+  id INTEGER NOT NULL PRIMARY KEY,
+  height INTEGER NOT NULL,
+  sleepTarget INTEGER NOT NULL,
+  stepsTarget INTEGER NOT NULL,
+  waterTarget INTEGER NOT NULL,
+  trackMood INTEGER NOT NULL,
+  trackSleep INTEGER NOT NULL,
+  trackSteps INTEGER NOT NULL,
+  trackWater INTEGER NOT NULL,
+  trackBmi INTEGER NOT NULL,
+  shareAI INTEGER NOT NULL,
+  showOnToday INTEGER NOT NULL,
+  morningReminder TEXT NOT NULL,
+  eveningReminder TEXT NOT NULL
+);
+
+select:
+SELECT * FROM wellness_settings WHERE id = 1;
+
+upsert:
+INSERT OR REPLACE INTO wellness_settings VALUES ?;
+
+deleteAll:
+DELETE FROM wellness_settings;

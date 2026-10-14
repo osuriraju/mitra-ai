@@ -1,0 +1,25 @@
+-- The chat conversation — device-only (never synced). `chartJson` is a JSON number array, `proposalJson` the
+-- server's proposal object ({"kind":"expense",…}); both null when absent. `createdAt` is epoch millis.
+CREATE TABLE ai_messages (
+  id TEXT NOT NULL PRIMARY KEY,
+  who TEXT NOT NULL,
+  text TEXT NOT NULL,
+  chartJson TEXT,
+  proposalJson TEXT,
+  applied INTEGER NOT NULL,
+  createdAt INTEGER NOT NULL
+);
+
+CREATE INDEX ai_messages_created ON ai_messages(createdAt);
+
+selectAll:
+SELECT * FROM ai_messages ORDER BY createdAt, id;
+
+selectById:
+SELECT * FROM ai_messages WHERE id = ?;
+
+upsert:
+INSERT OR REPLACE INTO ai_messages VALUES ?;
+
+deleteAll:
+DELETE FROM ai_messages;

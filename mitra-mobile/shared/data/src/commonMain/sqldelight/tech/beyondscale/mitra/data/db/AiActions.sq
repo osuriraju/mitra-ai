@@ -1,0 +1,35 @@
+-- The AI audit log, newest first. `at` is an ISO instant (local rows: the device's now). `revertJson` is the JSON
+-- array of revert ops ([{"op":"deleteTask","id":"…"}, {"op":"updateTask","id":"…","patch":{…}}]) or null.
+-- Append-only like the server: a revert updates the original (reverted = 1, state + " · reverted") and inserts a
+-- new "Reverted" row; nothing is ever deleted except by deleteAll (sign-out).
+CREATE TABLE ai_actions (
+  id TEXT NOT NULL PRIMARY KEY,
+  at TEXT NOT NULL,
+  action TEXT NOT NULL,
+  detail TEXT NOT NULL,
+  state TEXT NOT NULL,
+  tone TEXT NOT NULL,
+  revertible INTEGER NOT NULL,
+  reverted INTEGER NOT NULL,
+  revertJson TEXT
+);
+
+CREATE INDEX ai_actions_at ON ai_actions(at);
+
+selectAll:
+SELECT * FROM ai_actions ORDER BY at DESC, id DESC;
+
+selectById:
+SELECT * FROM ai_actions WHERE id = ?;
+
+selectIds:
+SELECT id FROM ai_actions;
+
+upsert:
+INSERT OR REPLACE INTO ai_actions VALUES ?;
+
+delete:
+DELETE FROM ai_actions WHERE id = ?;
+
+deleteAll:
+DELETE FROM ai_actions;

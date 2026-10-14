@@ -1,0 +1,21 @@
+-- Read-only cache of `GET activity` (newest first by `at`, an ISO instant). A refresh replaces the whole table.
+CREATE TABLE activity (
+  id TEXT NOT NULL PRIMARY KEY,
+  text TEXT NOT NULL,
+  icon TEXT NOT NULL,
+  tone TEXT NOT NULL,
+  module TEXT,
+  entityId TEXT,
+  at TEXT NOT NULL
+);
+
+CREATE INDEX activity_at ON activity(at);
+
+selectAll:
+SELECT * FROM activity ORDER BY at DESC, id;
+
+upsert:
+INSERT OR REPLACE INTO activity VALUES ?;
+
+deleteAll:
+DELETE FROM activity;

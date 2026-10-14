@@ -1,0 +1,29 @@
+-- Last loaded AI suggestions in server order. `actionJson` is the server's action object ({"kind":"pause_goal",…})
+-- or null; `state` (open | applied | dismissed) is device-only and survives a reload for ids the server repeats.
+CREATE TABLE suggestions (
+  id TEXT NOT NULL PRIMARY KEY,
+  icon TEXT NOT NULL,
+  title TEXT NOT NULL,
+  why TEXT NOT NULL,
+  source TEXT NOT NULL,
+  tone TEXT NOT NULL,
+  preview TEXT,
+  actionJson TEXT,
+  state TEXT NOT NULL,
+  position INTEGER NOT NULL
+);
+
+selectAll:
+SELECT * FROM suggestions ORDER BY position, id;
+
+selectById:
+SELECT * FROM suggestions WHERE id = ?;
+
+upsert:
+INSERT OR REPLACE INTO suggestions VALUES ?;
+
+setState:
+UPDATE suggestions SET state = ? WHERE id = ?;
+
+deleteAll:
+DELETE FROM suggestions;

@@ -26,6 +26,16 @@ object OutboxEntities {
     const val GOAL_PROGRESS = "goal-progress"
     /** Milestone add/patch/delete rows, `entityId` = the goal id (pending is decided per goal). */
     const val MILESTONE = "milestone"
+    /** `PUT wellness/entries/:date` rows, `entityId` = the ISO day; coalesce per day (`wellness-entry:<date>`). */
+    const val WELLNESS_ENTRY = "wellness-entry"
+    /** `PATCH wellness/settings` rows, `entityId` = null; coalesce on one key (`wellness-settings`). */
+    const val WELLNESS_SETTINGS = "wellness-settings"
+    /** Note create/patch/delete rows, `entityId` = the note id; editor autosave coalesces PATCHes per note. */
+    const val NOTE = "note"
+    /** `POST ai/actions` rows, `entityId` = the local action id (server assigns its own — see foundation notes). */
+    const val AI_ACTION = "ai-action"
+    /** `POST ai/actions/:id/revert` rows, `entityId` = the action id. */
+    const val AI_REVERT = "ai-revert"
 }
 
 /**
