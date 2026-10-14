@@ -31,7 +31,7 @@ import androidx.compose.ui.unit.dp
 import tech.beyondscale.mitra.designsystem.icons.MitraIcons
 import tech.beyondscale.mitra.designsystem.theme.Mitra
 
-enum class ChipTone { Neutral, Accent, Danger, Warning, Info, Outline }
+enum class ChipTone { Neutral, Accent, Success, Danger, Warning, Info, Outline }
 
 @Composable
 fun MitraChip(
@@ -49,6 +49,7 @@ fun MitraChip(
         else -> when (tone) {
             ChipTone.Neutral -> Triple(c.surface2, c.muted, Color.Transparent)
             ChipTone.Accent -> Triple(c.accentSoft, c.accent, Color.Transparent)
+            ChipTone.Success -> Triple(c.successSoft, c.success, Color.Transparent)
             ChipTone.Danger -> Triple(c.dangerSoft, c.danger, Color.Transparent)
             ChipTone.Warning -> Triple(c.warningSoft, c.warning, Color.Transparent)
             ChipTone.Info -> Triple(lerpSoft(c.surface, c.info), c.info, Color.Transparent)
