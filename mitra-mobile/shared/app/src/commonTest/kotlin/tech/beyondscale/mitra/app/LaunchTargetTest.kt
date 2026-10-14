@@ -21,6 +21,16 @@ class LaunchTargetTest {
         assertNull(parseLaunchUri("mitra://quick-add/expense/x"))
     }
 
+    @Test fun wellnessAiAndShareTargets() {
+        assertEquals(LaunchTarget.OpenCheckin, parseLaunchUri("mitra://checkin"))
+        assertEquals(LaunchTarget.OpenAi, parseLaunchUri("mitra://ai"))
+        assertNull(parseLaunchUri("mitra://ai/x"))
+        assertEquals(LaunchTarget.QuickAddNote("Read later\nhttps://x.dev/a"), sharedNoteTarget("Read later", " https://x.dev/a "))
+        assertEquals(LaunchTarget.QuickAddNote("https://x.dev/a"), sharedNoteTarget("x.dev", "https://x.dev/a"))
+        assertEquals(LaunchTarget.QuickAddNote("Just a subject"), sharedNoteTarget("Just a subject", null))
+        assertNull(sharedNoteTarget(" ", ""))
+    }
+
     @Test fun rejectsEverythingElse() {
         assertNull(parseLaunchUri("mitra://task/"))
         assertNull(parseLaunchUri("https://x/task/1"))

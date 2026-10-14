@@ -1,6 +1,8 @@
 package tech.beyondscale.mitra.app
 
 import kotlin.reflect.KClass
+import tech.beyondscale.mitra.domain.model.Modules
+import tech.beyondscale.mitra.feature.quickadd.QuickType
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
@@ -41,6 +43,23 @@ class ChromeTest {
             .forEach { assertEquals(Chrome.Detail, chromeFor(it), "$it") }
         assertEquals(Chrome.TabOwnBar, chromeForDestination { it == HabitsDest::class })
         assertEquals(Chrome.Detail, chromeForDestination { it == GoalReviewDest::class })
+    }
+
+    @Test fun wellnessNotesAiRoutes() {
+        listOf(WellnessDest::class, NotesDest::class, AiDest::class).forEach { assertEquals(Chrome.TabOwnBar, chromeFor(it), "$it") }
+        listOf(
+            WellnessTrendsDest::class, SleepDetailDest::class, WellnessSettingsDest::class,
+            NotesSearchDest::class, JournalDest::class, NoteEditorDest::class, AiSuggestionsDest::class, AiLogDest::class,
+        ).forEach { assertEquals(Chrome.Detail, chromeFor(it), "$it") }
+        assertEquals(Chrome.Detail, chromeForDestination { it == NoteEditorDest::class })
+    }
+
+    @Test fun quickAddTypesFollowModules() {
+        assertEquals(QuickType.entries, quickTypesFor(Modules()))
+        assertEquals(
+            listOf(QuickType.Task, QuickType.Habit, QuickType.Note),
+            quickTypesFor(Modules(money = false, wellness = false)),
+        )
     }
 
     /** Manage categories from the transaction sheet: stay in the Money stack, else enter it via Money's root. */

@@ -35,6 +35,17 @@ import kotlin.reflect.KClass
 @Serializable data class GoalDetailDest(val id: String)
 @Serializable data object GoalReviewDest
 
+/** Wellness, Notes and AI sub-screens. WellnessDest is the check-in; NotesDest the list; AiDest the chat. */
+@Serializable data object WellnessTrendsDest
+@Serializable data object SleepDetailDest
+@Serializable data object WellnessSettingsDest
+@Serializable data object NotesSearchDest
+@Serializable data object JournalDest
+/** [startWriting] opens a note just created straight into the editor's writing mode. */
+@Serializable data class NoteEditorDest(val id: String, val startWriting: Boolean = false)
+@Serializable data object AiSuggestionsDest
+@Serializable data object AiLogDest
+
 /**
  * How much of the shell a route shows: both bars ([Tab]); the bottom bar with the screen drawing its own top bar
  * (a tab, [TabOwnBar], or a back-bar [Detail] screen); or none ([Fullscreen]).
@@ -46,6 +57,9 @@ private val NON_TAB_ROUTES = listOf(
     TasksDest::class, TaskDetailDest::class, ProjectDetailDest::class, FocusDest::class,
     MoneyDest::class, TransactionsDest::class, BudgetsDest::class, CategoriesDest::class, RecurringDest::class, SubscriptionsDest::class,
     HabitsDest::class, HabitDetailDest::class, HabitHistoryDest::class, GoalsDest::class, GoalDetailDest::class, GoalReviewDest::class,
+    WellnessDest::class, WellnessTrendsDest::class, SleepDetailDest::class, WellnessSettingsDest::class,
+    NotesDest::class, NotesSearchDest::class, JournalDest::class, NoteEditorDest::class,
+    AiDest::class, AiSuggestionsDest::class, AiLogDest::class,
 )
 
 /** Detail routes that belong to the Money tab (the rest of the detail routes live under Tasks). */
@@ -54,6 +68,9 @@ internal val MONEY_DETAIL_ROUTES = listOf(TransactionsDest::class, BudgetsDest::
 /** Detail routes that belong to Habits / Goals (highlighting that tab or More entry). */
 internal val HABIT_DETAIL_ROUTES = listOf(HabitDetailDest::class, HabitHistoryDest::class)
 internal val GOAL_DETAIL_ROUTES = listOf(GoalDetailDest::class, GoalReviewDest::class)
+internal val WELLNESS_DETAIL_ROUTES = listOf(WellnessTrendsDest::class, SleepDetailDest::class, WellnessSettingsDest::class)
+internal val NOTES_DETAIL_ROUTES = listOf(NotesSearchDest::class, JournalDest::class, NoteEditorDest::class)
+internal val AI_DETAIL_ROUTES = listOf(AiSuggestionsDest::class, AiLogDest::class)
 
 /** The chrome for the current destination, given its `hasRoute` check (how MainShell resolves it). */
 internal fun chromeForDestination(hasRoute: (KClass<*>) -> Boolean): Chrome = chromeFor(NON_TAB_ROUTES.firstOrNull(hasRoute))
@@ -61,8 +78,10 @@ internal fun chromeForDestination(hasRoute: (KClass<*>) -> Boolean): Chrome = ch
 internal fun chromeFor(route: KClass<*>?): Chrome = when (route) {
     TaskDetailDest::class, ProjectDetailDest::class -> Chrome.Detail
     in MONEY_DETAIL_ROUTES, in HABIT_DETAIL_ROUTES, in GOAL_DETAIL_ROUTES -> Chrome.Detail
+    in WELLNESS_DETAIL_ROUTES, in NOTES_DETAIL_ROUTES, in AI_DETAIL_ROUTES -> Chrome.Detail
     FocusDest::class -> Chrome.Fullscreen
     TasksDest::class, MoneyDest::class, HabitsDest::class, GoalsDest::class -> Chrome.TabOwnBar
+    WellnessDest::class, NotesDest::class, AiDest::class -> Chrome.TabOwnBar
     else -> Chrome.Tab
 }
 

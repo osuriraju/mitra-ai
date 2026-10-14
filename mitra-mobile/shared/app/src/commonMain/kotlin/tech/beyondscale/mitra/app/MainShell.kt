@@ -74,7 +74,9 @@ import tech.beyondscale.mitra.domain.model.Modules
 import tech.beyondscale.mitra.domain.model.SyncStatus
 import tech.beyondscale.mitra.domain.model.TaskDraft
 import tech.beyondscale.mitra.domain.model.User
-import tech.beyondscale.mitra.feature.common.ComingSoonScreen
+import tech.beyondscale.mitra.feature.ai.AiChatRoute
+import tech.beyondscale.mitra.feature.ai.AiLogRoute
+import tech.beyondscale.mitra.feature.ai.AiSuggestionsRoute
 import tech.beyondscale.mitra.feature.common.EventEffect
 import tech.beyondscale.mitra.feature.goals.GoalDetailRoute
 import tech.beyondscale.mitra.feature.goals.GoalEditorAction
@@ -91,6 +93,10 @@ import tech.beyondscale.mitra.feature.habits.HabitFormSheet
 import tech.beyondscale.mitra.feature.habits.HabitHistoryRoute
 import tech.beyondscale.mitra.feature.habits.HabitsRoute
 import tech.beyondscale.mitra.feature.money.BudgetsRoute
+import tech.beyondscale.mitra.feature.notes.JournalRoute
+import tech.beyondscale.mitra.feature.notes.NoteEditorRoute
+import tech.beyondscale.mitra.feature.notes.NotesRoute
+import tech.beyondscale.mitra.feature.notes.NotesSearchRoute
 import tech.beyondscale.mitra.feature.money.CategoriesRoute
 import tech.beyondscale.mitra.feature.money.MoneyLink
 import tech.beyondscale.mitra.feature.money.MoneyRoute
@@ -113,6 +119,10 @@ import tech.beyondscale.mitra.feature.tasks.TaskEditorViewModel
 import tech.beyondscale.mitra.feature.tasks.TaskFormSheet
 import tech.beyondscale.mitra.feature.tasks.TasksRoute
 import tech.beyondscale.mitra.feature.today.TodayRoute
+import tech.beyondscale.mitra.feature.wellness.CheckinRoute
+import tech.beyondscale.mitra.feature.wellness.SleepDetailRoute
+import tech.beyondscale.mitra.feature.wellness.WellnessSettingsRoute
+import tech.beyondscale.mitra.feature.wellness.WellnessTrendsRoute
 
 internal data class Dest(val label: String, val icon: ImageVector, val route: Any)
 
@@ -174,12 +184,18 @@ internal fun MainShell(user: User, sync: SyncStatus, messages: Flow<String>) {
     val moneyDetail = MONEY_DETAIL_ROUTES.any { destination?.hasRoute(it) == true }
     val habitDetail = HABIT_DETAIL_ROUTES.any { destination?.hasRoute(it) == true }
     val goalDetail = GOAL_DETAIL_ROUTES.any { destination?.hasRoute(it) == true }
-    // Money's sub-screens live under Money (none when the module is off); habit and goal screens under Habits / Goals;
-    // task and project detail and Focus under Tasks.
+    val wellnessDetail = WELLNESS_DETAIL_ROUTES.any { destination?.hasRoute(it) == true }
+    val notesDetail = NOTES_DETAIL_ROUTES.any { destination?.hasRoute(it) == true }
+    val aiDetail = AI_DETAIL_ROUTES.any { destination?.hasRoute(it) == true }
+    // Money's sub-screens live under Money (none when the module is off); habit, goal, wellness, notes and AI screens
+    // under their entry (none for a switched-off Wellness / AI); task and project detail and Focus under Tasks.
     val current = when {
         moneyDetail -> MONEY.takeIf { it in tabs }
         habitDetail -> HABITS
         goalDetail -> GOALS
+        wellnessDetail -> WELLNESS.takeIf { it in more }
+        notesDetail -> NOTES
+        aiDetail -> AI.takeIf { it in more }
         isDetail(chrome) -> TASKS
         else -> (tabs + more).firstOrNull { d -> destination?.hierarchy?.any { it.hasRoute(d.route::class) } == true }
     }
@@ -192,6 +208,9 @@ internal fun MainShell(user: User, sync: SyncStatus, messages: Flow<String>) {
     fun openTask(id: String) = nav.navigate(TaskDetailDest(id))
     fun openHabit(id: String) = nav.navigate(HabitDetailDest(id))
     fun openGoal(id: String) = nav.navigate(GoalDetailDest(id))
+    fun openNote(id: String) = nav.navigate(NoteEditorDest(id))
+    /** Wellness / AI root, or Today when that module is off. */
+    fun goIf(on: Boolean, route: Any) = go(if (on) route else TodayDest)
     fun openTxForm(editId: String?) {
         txEditor.start(editId)
         txFormOpen = true
@@ -233,7 +252,8 @@ internal fun MainShell(user: User, sync: SyncStatus, messages: Flow<String>) {
     // A module switched off while its screen is open would strand the user: fall back to Today.
     LaunchedEffect(modules, current, entry, chrome) {
         if (!modules.money) txFormOpen = false
-        if ((!isDetail(chrome) || moneyDetail) && entry != null && current == null && entry?.destination?.route != null) go(TodayDest)
+        val moduleDetail = moneyDetail || wellnessDetail || aiDetail
+        if ((!isDetail(chrome) || moduleDetail) && entry != null && current == null && entry?.destination?.route != null) go(TodayDest)
     }
 
     // Widget / shortcut targets wait in LaunchRequests (also while signed out) until this shell handles them.
@@ -261,6 +281,13 @@ internal fun MainShell(user: User, sync: SyncStatus, messages: Flow<String>) {
             } else {
                 go(TodayDest)
             }
+            LaunchTarget.OpenCheckin -> goIf(modules.wellness, WellnessDest)
+            LaunchTarget.OpenAi -> goIf(modules.ai, AiDest)
+            is LaunchTarget.QuickAddNote -> {
+                quickAddOpen = true
+                quickAdd.onAction(QuickAddAction.Type(QuickType.Note))
+                quickAdd.onAction(QuickAddAction.Text(target.text))
+            }
         }
         launches.consume()
     }
@@ -280,7 +307,13 @@ internal fun MainShell(user: User, sync: SyncStatus, messages: Flow<String>) {
             goalEditor.navigation.collect { e -> when (e) { is GoalEditorEvent.Created -> openGoal(e.id) } }
         }
         LaunchedEffect(quickAdd) {
-            quickAdd.navigation.collect { e -> when (e) { is QuickAddEvent.NewHabit -> habitEditor.onAction(HabitEditorAction.Open(e.name)) } }
+            quickAdd.navigation.collect { e ->
+                when (e) {
+                    is QuickAddEvent.NewHabit -> habitEditor.onAction(HabitEditorAction.Open(e.name))
+                    is QuickAddEvent.OpenNote -> nav.navigate(NoteEditorDest(e.id, startWriting = true))
+                    QuickAddEvent.OpenCheckin -> go(WellnessDest)
+                }
+            }
         }
         val addTask: (TaskDraft) -> Unit = { editor.onAction(TaskEditorAction.Open(it)) }
         val addHabit: () -> Unit = { habitEditor.onAction(HabitEditorAction.Open()) }
@@ -326,6 +359,7 @@ internal fun MainShell(user: User, sync: SyncStatus, messages: Flow<String>) {
                         onAddHabit = addHabit,
                         onOpenGoals = { go(GoalsDest) },
                         onOpenGoal = ::openGoal,
+                        onOpenCheckin = { goIf(modules.wellness, WellnessDest) },
                     )
                 }
                 composable<TasksDest> {
@@ -412,9 +446,73 @@ internal fun MainShell(user: User, sync: SyncStatus, messages: Flow<String>) {
                         onBack = ::back,
                     )
                 }
-                composable<WellnessDest> { ComingSoonScreen("Wellness", MitraIcons.Heart) }
-                composable<NotesDest> { ComingSoonScreen("Notes", MitraIcons.Note) }
-                composable<AiDest> { ComingSoonScreen("AI", MitraIcons.Sparkles) }
+                composable<WellnessDest> {
+                    CheckinRoute(
+                        onSaved = { nav.navigate(WellnessTrendsDest) },
+                        onSkip = { go(TodayDest) },
+                        onOpenTrends = { nav.navigate(WellnessTrendsDest) },
+                        onOpenSettings = { nav.navigate(WellnessSettingsDest) },
+                        topBarActions = shellActions,
+                    )
+                }
+                composable<WellnessTrendsDest> {
+                    WellnessTrendsRoute(
+                        onBack = ::back,
+                        onOpenSleep = { nav.navigate(SleepDetailDest) },
+                        onOpenSettings = { nav.navigate(WellnessSettingsDest) },
+                    )
+                }
+                composable<SleepDetailDest> {
+                    SleepDetailRoute(
+                        onBack = ::back,
+                        onOpenHabit = ::openHabit,
+                        onOpenNote = ::openNote,
+                        // Back to the check-in beneath (or Wellness' root if reached another way).
+                        onOpenCheckin = { if (!nav.popBackStack<WellnessDest>(inclusive = false)) go(WellnessDest) },
+                    )
+                }
+                composable<WellnessSettingsDest> { WellnessSettingsRoute(onBack = ::back) }
+                composable<NotesDest> {
+                    NotesRoute(
+                        onOpenNote = ::openNote,
+                        onSearch = { nav.navigate(NotesSearchDest) },
+                        onJournal = { nav.navigate(JournalDest) },
+                        topBarActions = shellActions,
+                        onNoteCreated = { nav.navigate(NoteEditorDest(it, startWriting = true)) },
+                    )
+                }
+                composable<NotesSearchDest> {
+                    NotesSearchRoute(onBack = ::back, onOpenNote = ::openNote, onOpenTask = ::openTask, onOpenGoal = ::openGoal, onOpenHabit = ::openHabit)
+                }
+                composable<JournalDest> { JournalRoute(onBack = ::back, onOpenNote = ::openNote) }
+                composable<NoteEditorDest> { e ->
+                    val dest = e.toRoute<NoteEditorDest>()
+                    NoteEditorRoute(
+                        id = dest.id,
+                        onBack = ::back,
+                        onOpenNote = ::openNote,
+                        onOpenGoal = ::openGoal,
+                        onOpenTask = ::openTask,
+                        onOpenProject = { nav.navigate(ProjectDetailDest(it)) },
+                        startWriting = dest.startWriting,
+                    )
+                }
+                composable<AiDest> {
+                    AiChatRoute(
+                        onOpenLog = { nav.navigate(AiLogDest) },
+                        onOpenSuggestions = { nav.navigate(AiSuggestionsDest) },
+                        onOpenModule = { module ->
+                            when (module) {
+                                "transactions" -> if (goMoneyRoot()) nav.navigate(TransactionsDest())
+                                "tasks" -> go(TasksDest)
+                                "goals" -> go(GoalsDest)
+                            }
+                        },
+                        topBarActions = shellActions,
+                    )
+                }
+                composable<AiSuggestionsDest> { AiSuggestionsRoute(onBack = ::back, onOpenLog = { nav.navigate(AiLogDest) }) }
+                composable<AiLogDest> { AiLogRoute(onBack = ::back) }
                 composable<SettingsDest> { SettingsRoute() }
             }
         }
@@ -424,7 +522,7 @@ internal fun MainShell(user: User, sync: SyncStatus, messages: Flow<String>) {
             QuickAddSheet(state, quickAdd::onAction, onDismiss = {
                 quickAddOpen = false
                 quickAdd.onAction(QuickAddAction.Reset)
-            })
+            }, types = remember(modules) { quickTypesFor(modules) })
         }
 
         val editorState by editor.state.collectAsStateWithLifecycle()
@@ -450,6 +548,15 @@ internal fun MainShell(user: User, sync: SyncStatus, messages: Flow<String>) {
                 }
             }
         }
+    }
+}
+
+/** Quick Add type chips for the enabled [modules] (Expense needs Money, Mood needs Wellness). */
+internal fun quickTypesFor(modules: Modules): List<QuickType> = QuickType.entries.filter {
+    when (it) {
+        QuickType.Expense -> modules.money
+        QuickType.Mood -> modules.wellness
+        else -> true
     }
 }
 

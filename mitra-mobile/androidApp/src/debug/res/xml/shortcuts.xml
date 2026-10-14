@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Debug copy of main/res/xml/shortcuts.xml: the debug build's package carries the .debug suffix. -->
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:shortcutId="new_task"
+        android:enabled="true"
+        android:icon="@mipmap/ic_launcher"
+        android:shortcutShortLabel="@string/shortcut_new_task">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:data="mitra://quick-add/task"
+            android:targetPackage="tech.beyondscale.mitra.debug"
+            android:targetClass="tech.beyondscale.mitra.android.MainActivity" />
+    </shortcut>
+    <shortcut
+        android:shortcutId="add_expense"
+        android:enabled="true"
+        android:icon="@mipmap/ic_launcher"
+        android:shortcutShortLabel="@string/shortcut_add_expense">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:data="mitra://quick-add/expense"
+            android:targetPackage="tech.beyondscale.mitra.debug"
+            android:targetClass="tech.beyondscale.mitra.android.MainActivity" />
+    </shortcut>
+    <shortcut
+        android:shortcutId="checkin"
+        android:enabled="true"
+        android:icon="@mipmap/ic_launcher"
+        android:shortcutShortLabel="@string/shortcut_checkin">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:data="mitra://checkin"
+            android:targetPackage="tech.beyondscale.mitra.debug"
+            android:targetClass="tech.beyondscale.mitra.android.MainActivity" />
+    </shortcut>
+    <shortcut
+        android:shortcutId="ask_mitra"
+        android:enabled="true"
+        android:icon="@mipmap/ic_launcher"
+        android:shortcutShortLabel="@string/shortcut_ask_mitra">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:data="mitra://ai"
+            android:targetPackage="tech.beyondscale.mitra.debug"
+            android:targetClass="tech.beyondscale.mitra.android.MainActivity" />
+    </shortcut>
+</shortcuts>

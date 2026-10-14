@@ -13,7 +13,22 @@ import org.koin.dsl.module
 import tech.beyondscale.mitra.data.remote.SecureStore
 import tech.beyondscale.mitra.data.sync.PeriodicSync
 import tech.beyondscale.mitra.data.sync.SyncScheduler
+import tech.beyondscale.mitra.domain.repository.ActivityRepository
+import tech.beyondscale.mitra.domain.repository.AiRepository
 import tech.beyondscale.mitra.domain.repository.AuthRepository
+import tech.beyondscale.mitra.domain.repository.NotesRepository
+import tech.beyondscale.mitra.domain.repository.WellnessRepository
+import tech.beyondscale.mitra.feature.ai.AiChatViewModel
+import tech.beyondscale.mitra.feature.ai.AiLogViewModel
+import tech.beyondscale.mitra.feature.ai.AiSuggestionsViewModel
+import tech.beyondscale.mitra.feature.notes.JournalViewModel
+import tech.beyondscale.mitra.feature.notes.NoteEditorViewModel
+import tech.beyondscale.mitra.feature.notes.NotesSearchViewModel
+import tech.beyondscale.mitra.feature.notes.NotesViewModel
+import tech.beyondscale.mitra.feature.wellness.CheckinViewModel
+import tech.beyondscale.mitra.feature.wellness.SleepDetailViewModel
+import tech.beyondscale.mitra.feature.wellness.WellnessSettingsViewModel
+import tech.beyondscale.mitra.feature.wellness.WellnessTrendsViewModel
 import tech.beyondscale.mitra.domain.repository.GoalsRepository
 import tech.beyondscale.mitra.domain.repository.HabitsRepository
 import tech.beyondscale.mitra.domain.repository.ModuleRefresher
@@ -111,5 +126,20 @@ class AppModulesTest : ViewModelTest() {
         koin.get<GoalEditorViewModel>()
         koin.get<GoalDetailViewModel> { parametersOf("g1") }
         koin.get<GoalReviewViewModel>()
+        koin.get<WellnessRepository>()
+        koin.get<NotesRepository>()
+        koin.get<AiRepository>()
+        koin.get<ActivityRepository>()
+        koin.get<CheckinViewModel>()
+        koin.get<WellnessTrendsViewModel>()
+        koin.get<SleepDetailViewModel>()
+        koin.get<WellnessSettingsViewModel>()
+        koin.get<NotesViewModel>()
+        koin.get<NotesSearchViewModel>()
+        koin.get<JournalViewModel>()
+        koin.get<NoteEditorViewModel> { parametersOf("n1", true) }
+        koin.get<AiChatViewModel>()
+        koin.get<AiSuggestionsViewModel>()
+        koin.get<AiLogViewModel>()
     }
 }

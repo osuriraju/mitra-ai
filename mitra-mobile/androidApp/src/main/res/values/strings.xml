@@ -33,4 +33,8 @@
     <string name="money_widget_hide_amounts">Hide amounts</string>
     <string name="money_widget_hide_amounts_sub">Shows ₹•••• instead of amounts on this widget.</string>
     <string name="money_widget_config_done">Done</string>
+    <string name="shortcut_new_task">New task</string>
+    <string name="shortcut_add_expense">Add expense</string>
+    <string name="shortcut_checkin">Check-in</string>
+    <string name="shortcut_ask_mitra">Ask Mitra</string>
 </resources>
