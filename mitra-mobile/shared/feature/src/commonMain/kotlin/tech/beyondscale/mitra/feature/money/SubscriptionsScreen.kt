@@ -37,6 +37,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import org.koin.compose.viewmodel.koinViewModel
 import tech.beyondscale.mitra.core.inrShortPaise
 import tech.beyondscale.mitra.designsystem.components.ChipTone
+import tech.beyondscale.mitra.designsystem.components.EmptyState
+import tech.beyondscale.mitra.designsystem.components.MitraButton
 import tech.beyondscale.mitra.designsystem.components.MitraCard
 import tech.beyondscale.mitra.designsystem.components.MitraChip
 import tech.beyondscale.mitra.designsystem.components.MitraSegmented
@@ -86,6 +88,11 @@ fun SubscriptionsScreen(state: SubscriptionsUiState, onAction: (SubscriptionsAct
             }
             item(key = "list") {
                 MitraCard(contentPadding = PaddingValues(0.dp)) {
+                    if (state.rows.isEmpty()) {
+                        EmptyState(MitraIcons.Repeat, "No subscriptions yet", "Add the services you pay for to track renewals.") {
+                            MitraButton("Add subscription", onClick = { adding = true }, icon = MitraIcons.Plus)
+                        }
+                    }
                     state.rows.forEachIndexed { i, r ->
                         if (i > 0) HorizontalDivider(color = c.border)
                         SubRow(

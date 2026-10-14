@@ -118,6 +118,7 @@ private fun Header(state: MoneyUiState, onAction: (MoneyAction) -> Unit, onOpen:
         MonthSwitcher(
             title = state.monthTitle,
             canNext = state.canNext,
+            canPrev = state.canPrev,
             onPrev = { if (state.canPrev) onAction(MoneyAction.PrevMonth) },
             onNext = { onAction(MoneyAction.NextMonth) },
             modifier = Modifier.padding(horizontal = MitraDimens.pad - 8.dp),

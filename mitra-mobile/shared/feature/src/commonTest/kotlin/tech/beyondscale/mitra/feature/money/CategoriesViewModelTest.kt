@@ -83,4 +83,12 @@ class CategoriesViewModelTest : ViewModelTest() {
         )
         assertEquals(listOf("Category updated", "Category deleted"), h.events.map { (it as UiEvent.Snack).text })
     }
+
+    @Test fun blankBudgetClearsExistingBudget() = runTest {
+        val repo = FakeMoneyRepository(categories = listOf(Category("food", "Food", "🍔", CategoryKind.Expense, budgetPaise = 100_000)))
+        val h = start(repo)
+        h.vm.onAction(CategoriesAction.Update("food", "Food", ""))
+        runCurrent()
+        assertEquals(listOf("updateCategory:food:Budget(paise=null)"), repo.calls)
+    }
 }

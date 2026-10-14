@@ -207,7 +207,7 @@ private fun AllRow(r: RecurringRowUi, onToggleReminder: () -> Unit, onDelete: ()
 @Composable
 internal fun RecSubKpi(label: String, value: String, sub: String?, modifier: Modifier = Modifier) {
     val c = Mitra.colors
-    Column(modifier) {
+    Column(modifier.semantics(mergeDescendants = true) { }) {
         Text(label, style = Mitra.type.xs, color = c.muted)
         Text(value, style = Mitra.type.numLg, color = c.text)
         if (!sub.isNullOrEmpty()) Text(sub, style = Mitra.type.xs, color = c.faint)

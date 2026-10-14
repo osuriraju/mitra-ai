@@ -25,11 +25,12 @@ fun MonthSwitcher(
     onPrev: () -> Unit,
     onNext: () -> Unit,
     modifier: Modifier = Modifier,
+    canPrev: Boolean = true,
 ) {
     val c = Mitra.colors
     Row(modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-        IconButton(onClick = onPrev, modifier = Modifier.size(48.dp)) {
-            Icon(MitraIcons.ChevronLeft, contentDescription = "Previous month", tint = c.text)
+        IconButton(onClick = onPrev, enabled = canPrev, modifier = Modifier.size(48.dp)) {
+            Icon(MitraIcons.ChevronLeft, contentDescription = "Previous month", tint = if (canPrev) c.text else c.faint)
         }
         Text(title, Modifier.semantics { heading(); liveRegion = LiveRegionMode.Polite }, style = Mitra.type.h3, color = c.text)
         IconButton(onClick = onNext, enabled = canNext, modifier = Modifier.size(48.dp)) {

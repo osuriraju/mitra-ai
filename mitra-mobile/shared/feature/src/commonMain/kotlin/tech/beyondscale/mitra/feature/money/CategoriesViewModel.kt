@@ -86,7 +86,12 @@ class CategoriesViewModel(private val money: MoneyRepository, private val clock:
                 val changes = buildList {
                     val n = a.name.trim()
                     if (n.isNotEmpty() && n != current.name) add(CategoryChange.Name(n))
-                    rupeesToPaise(a.budgetRupees)?.let { if (current.kind == CategoryKind.Expense) add(CategoryChange.Budget(it)) }
+                    if (current.kind == CategoryKind.Expense) {
+                        val paise = rupeesToPaise(a.budgetRupees)
+                        // Blank field on a category that has a budget clears it (web sends budget: null).
+                        if (paise != null) add(CategoryChange.Budget(paise))
+                        else if (current.budgetPaise != null && a.budgetRupees.isBlank()) add(CategoryChange.Budget(null))
+                    }
                 }
                 if (changes.isNotEmpty()) money.updateCategory(a.id, changes)
                 queue.send(UiEvent.Snack("Category updated"))

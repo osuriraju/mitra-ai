@@ -27,6 +27,7 @@ import tech.beyondscale.mitra.domain.money.budgetTone
 import tech.beyondscale.mitra.domain.money.spentByCategory
 import tech.beyondscale.mitra.domain.money.thisMonth
 import tech.beyondscale.mitra.domain.money.totalBudget
+import tech.beyondscale.mitra.domain.repository.MoneyRepository
 import tech.beyondscale.mitra.feature.common.EventQueue
 import tech.beyondscale.mitra.feature.common.UiEvent
 import kotlin.math.max
@@ -82,7 +83,7 @@ internal fun rupeesToPaise(text: String): Long? {
     return digits.toLong() * 100
 }
 
-class BudgetsViewModel(private val money: tech.beyondscale.mitra.domain.repository.MoneyRepository, private val clock: AppClock) : ViewModel() {
+class BudgetsViewModel(private val money: MoneyRepository, private val clock: AppClock) : ViewModel() {
     private val queue = EventQueue<BudgetsAction>()
     val events: Flow<UiEvent<BudgetsAction>> = queue.events
 

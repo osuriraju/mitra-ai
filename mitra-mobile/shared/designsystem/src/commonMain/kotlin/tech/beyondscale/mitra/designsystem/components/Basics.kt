@@ -24,6 +24,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
@@ -38,7 +40,7 @@ fun Eyebrow(text: String, modifier: Modifier = Modifier) =
 
 @Composable
 fun SectionHeader(title: String, modifier: Modifier = Modifier) =
-    Text(title, modifier.padding(top = 4.dp), style = Mitra.type.h3, color = Mitra.colors.text)
+    Text(title, modifier.padding(top = 4.dp).semantics { heading() }, style = Mitra.type.h3, color = Mitra.colors.text)
 
 /** The app's logo mark: accent tile with an "M". */
 @Composable
