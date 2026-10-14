@@ -63,7 +63,7 @@ class FocusViewModel(
     taskId: String,
     private val tasks: TasksRepository,
     auth: AuthRepository,
-    clock: AppClock,
+    private val clock: AppClock,
 ) : ViewModel() {
     private data class Inputs(val queue: List<Task>, val focusMinutes: Int)
 
@@ -125,8 +125,41 @@ class FocusViewModel(
         }
     }
 
-    /** Screen stopped: pause the countdown, keeping the remaining time and the running flag. */
+    private var keepAlive: FocusKeepAlive? = null
+    /** End time last handed to [keepAlive]; null while it is stopped. */
+    private var keptUntil: Long? = null
+
+    /** Lets a running countdown continue in the background ([FocusKeepAlive]); the first non-null binding wins. */
+    fun attachKeepAlive(k: FocusKeepAlive?) {
+        if (k == null || keepAlive != null) return
+        keepAlive = k
+        viewModelScope.launch { k.stopRequests.collect { if (timer.value.running) onAction(FocusAction.PauseResume) } }
+        viewModelScope.launch { timer.collect { publish(it) } }
+    }
+
+    private fun publish(t: Timer) {
+        val k = keepAlive ?: return
+        val title = current()?.title
+        if (!t.running || title == null) {
+            if (keptUntil != null) { keptUntil = null; k.stop() }
+            return
+        }
+        val endsAt = clock.now().toEpochMilliseconds() + t.left * 1_000L
+        // Re-post only when the end time really moved (start, +5, reset, next task), not on every tick.
+        val last = keptUntil
+        if (last == null || kotlin.math.abs(endsAt - last) > 2_000) {
+            keptUntil = endsAt
+            k.start(title, endsAt)
+        }
+    }
+
+    override fun onCleared() {
+        if (keptUntil != null) keepAlive?.stop()
+    }
+
+    /** Screen stopped: pause the countdown, keeping the remaining time and the running flag — unless kept alive. */
     fun onStop() {
+        if (keepAlive != null && timer.value.running) return
         stopped = true
         ticker?.cancel()
     }

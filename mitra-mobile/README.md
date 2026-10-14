@@ -77,7 +77,23 @@ Known gaps:
 3. `./gradlew :androidApp:installDebug`
 
 ### Debug networking
-Debug builds allow cleartext HTTP only to `10.0.2.2`, `localhost`, `127.0.0.1` and the host in `mitra.apiUrl`. Rebuild after changing `mitra.apiUrl`. Release builds use HTTPS only (`-Pmitra.releaseApiUrl=https://…/api/`).
+Debug builds allow cleartext HTTP only to `10.0.2.2`, `localhost`, `127.0.0.1` and the host in `mitra.apiUrl` (a malformed URL logs a Gradle warning and falls back to those three). Rebuild after changing `mitra.apiUrl`. Release builds use HTTPS only (`-Pmitra.releaseApiUrl=https://…/api/`).
+
+### Release build and signing
+`./gradlew :androidApp:assembleRelease -Pmitra.releaseApiUrl=https://<host>/api/` (the app refuses to start on a missing, non-https or host-less URL). Without signing settings the build logs `mitra: release signing not configured` and outputs an unsigned APK. To sign:
+1. Create a keystore once, outside git (keep it and its passwords backed up — Play updates need the same key):
+   `keytool -genkeypair -v -keystore ~/keys/mitra-release.jks -alias mitra -keyalg RSA -keysize 4096 -validity 10000`
+2. Add to `mitra-mobile/local.properties` (git-ignored; a relative `storeFile` resolves against `mitra-mobile/`):
+   ```
+   mitra.signing.storeFile=/Users/<you>/keys/mitra-release.jks
+   mitra.signing.storePassword=…
+   mitra.signing.keyAlias=mitra
+   mitra.signing.keyPassword=…
+   ```
+   or, in CI, the env vars `MITRA_SIGNING_STOREFILE`, `MITRA_SIGNING_STOREPASSWORD`, `MITRA_SIGNING_KEYALIAS`, `MITRA_SIGNING_KEYPASSWORD`.
+3. Check with `apksigner verify --print-certs androidApp/build/outputs/apk/release/androidApp-release.apk`.
+
+Never commit a keystore or these values. Baseline profile: not set up — generating one needs a device/emulator (macrobenchmark module); add it when release testing starts.
 
 ### Physical phone
 1. Enable USB debugging on the phone and connect it to the Mac.
@@ -101,6 +117,14 @@ Not yet run on a device (planned once, after Phase 6). The deferred checklists l
 51. Settings → AI off / Wellness off → their screens fall back to Today; More no longer lists them; Mood chip disappears.
 52. Long-press the launcher icon → New task / Add expense / Check-in / Ask Mitra each open the right screen.
 53. Share a link from Chrome to Mitra → Quick Add opens on Note with the link; Create note → editor.
+
+Phase 6 (release readiness):
+
+54. Launcher: adaptive icon (teal + M) on round and squircle masks; Android 13+ themed icons → monochrome M.
+55. Focus: start a session, go Home → ongoing countdown notification; the clock keeps running; Stop pauses it; reopening the app hides it; finishing the countdown removes it.
+56. Airplane mode: queue a change, background the app 15+ min, reconnect → the periodic job drains it.
+57. TalkBack: Login fields read "Email or username, edit box"; the Sign in button says "Loading" while busy; screen titles are headings. Autofill offers saved credentials on Login and suggests a strong password on Sign up.
+58. Release APK (`-Pmitra.releaseApiUrl=https://…`) installs signed; an http URL in a release build fails at startup.
 
 ## Icons
 After changing `mitra-frontend/src/lib/icons.ts`:

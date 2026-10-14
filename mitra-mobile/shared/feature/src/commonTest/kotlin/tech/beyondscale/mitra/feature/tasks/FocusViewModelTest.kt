@@ -221,4 +221,28 @@ class FocusViewModelTest : ViewModelTest() {
         assertNull(s.title)
         assertFalse(s.running)
     }
+
+    private class FakeKeepAlive : FocusKeepAlive {
+        val calls = mutableListOf<String>()
+        val stops = kotlinx.coroutines.flow.MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+        override fun start(title: String, endsAtEpochMs: Long) { calls += "start $title $endsAtEpochMs" }
+        override fun stop() { calls += "stop" }
+        override val stopRequests = stops
+    }
+
+    @Test fun keepAliveKeepsCountingInBackgroundAndStopPauses() = runTest {
+        val h = start(FakeTasksRepository(listOf(c)))
+        val k = FakeKeepAlive()
+        h.vm.attachKeepAlive(k)
+        runCurrent()
+        val end = Instant.parse("2026-10-13T04:55:00Z").toEpochMilliseconds()
+        assertEquals(listOf("start Stretch $end"), k.calls)
+        h.vm.onStop()
+        advanceTimeBy(10_001)
+        assertEquals("24:50", h.vm.state.value.clock) // still ticking while backgrounded
+        k.stops.tryEmit(Unit)
+        runCurrent()
+        assertFalse(h.vm.state.value.running)
+        assertEquals("stop", k.calls.last())
+    }
 }

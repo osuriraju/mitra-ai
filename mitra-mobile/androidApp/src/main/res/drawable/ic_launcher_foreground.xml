@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The "M" mark from mitra-frontend/public/icon.svg, inside the 66dp adaptive-icon safe zone. Also the monochrome layer. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#04110F"
+        android:pathData="M36,71L36,37L44.5,37L54,52L63.5,37L72,37L72,71L64,71L64,51L56.5,62.5L51.5,62.5L44,51L44,71Z" />
+</vector>

@@ -45,6 +45,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import org.koin.compose.getKoin
 import org.koin.compose.viewmodel.koinViewModel
 import org.koin.core.parameter.parametersOf
 import tech.beyondscale.mitra.designsystem.components.ButtonKind
@@ -69,6 +70,8 @@ fun FocusRoute(
     EventEffect(vm.events, vm::onAction, onClose)
     val open by rememberUpdatedState(onOpenTask)
     LaunchedEffect(vm) { vm.openTask.collect { open(it) } }
+    val koin = getKoin()
+    LaunchedEffect(vm) { vm.attachKeepAlive(koin.getOrNull<FocusKeepAlive>()) }
     LifecycleEventEffect(Lifecycle.Event.ON_STOP) { vm.onStop() }
     LifecycleEventEffect(Lifecycle.Event.ON_START) { vm.onStart() }
     FocusScreen(state, vm::onAction, onClose)

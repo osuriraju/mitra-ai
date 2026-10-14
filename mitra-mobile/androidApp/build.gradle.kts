@@ -10,7 +10,24 @@ val localProps = Properties().apply {
     rootProject.file("local.properties").takeIf { it.exists() }?.inputStream()?.use { load(it) }
 }
 
-val debugApiUrl: String = localProps.getProperty("mitra.apiUrl", "http://10.0.2.2:4000/api/")
+val debugApiUrl: String = localProps.getProperty("mitra.apiUrl", "http://10.0.2.2:4000/api/").trim()
+
+/** Host of `mitra.apiUrl`, or null (with a warning) if it is malformed — the build goes on with the default dev hosts. */
+val debugApiHost: String? = runCatching { URI(debugApiUrl).host }.getOrNull().also {
+    if (it.isNullOrBlank()) logger.warn("mitra: mitra.apiUrl '$debugApiUrl' has no parseable host; cleartext is allowed only for 10.0.2.2/localhost")
+}?.takeIf { it.isNotBlank() }
+
+/** Release signing: `mitra.signing.*` in local.properties, else MITRA_SIGNING_* env vars. Never committed. */
+fun signingValue(key: String): String? =
+    localProps.getProperty("mitra.signing.$key")?.takeIf { it.isNotBlank() }
+        ?: System.getenv("MITRA_SIGNING_" + key.uppercase())?.takeIf { it.isNotBlank() }
+
+val releaseKeystore: File? = signingValue("storeFile")?.let { rootProject.file(it) }
+val releaseSigningReady = releaseKeystore != null && releaseKeystore.exists() &&
+    listOf("storePassword", "keyAlias", "keyPassword").all { signingValue(it) != null }
+if (!releaseSigningReady) {
+    logger.lifecycle("mitra: release signing not configured (mitra.signing.* / MITRA_SIGNING_*); assembleRelease outputs an unsigned APK")
+}
 
 /**
  * Debug-only network security config: cleartext HTTP is allowed just for the emulator host, localhost and the dev
@@ -40,7 +57,7 @@ abstract class DevNetworkSecurityConfig : DefaultTask() {
 }
 
 val devNetworkSecurityConfig = tasks.register<DevNetworkSecurityConfig>("devNetworkSecurityConfig") {
-    hosts.set(listOfNotNull("10.0.2.2", "localhost", "127.0.0.1", URI(debugApiUrl).host))
+    hosts.set(listOfNotNull("10.0.2.2", "localhost", "127.0.0.1", debugApiHost))
     outputDir.set(layout.buildDirectory.dir("generated/res/devNetworkSecurity"))
 }
 
@@ -60,13 +77,22 @@ android {
         versionCode = 1
         versionName = "0.1.0"
     }
+    signingConfigs {
+        if (releaseSigningReady) create("release") {
+            storeFile = releaseKeystore
+            storePassword = signingValue("storePassword")
+            keyAlias = signingValue("keyAlias")
+            keyPassword = signingValue("keyPassword")
+        }
+    }
     buildTypes {
         debug {
             applicationIdSuffix = ".debug"
-            buildConfigField("String", "API_URL", "\"$debugApiUrl\"")
+            buildConfigField("String", "API_URL", "\"${debugApiUrl.replace("\"", "")}\"")
         }
         release {
             isMinifyEnabled = false
+            if (releaseSigningReady) signingConfig = signingConfigs.getByName("release")
             buildConfigField("String", "API_URL", "\"${providers.gradleProperty("mitra.releaseApiUrl").getOrElse("")}\"")
         }
     }
