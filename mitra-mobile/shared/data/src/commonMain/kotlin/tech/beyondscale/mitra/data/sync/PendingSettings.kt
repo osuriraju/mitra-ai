@@ -10,6 +10,12 @@ object OutboxEntities {
     const val USER_SETTINGS = "user-settings"
     const val TASK = "task"
     const val PROJECT = "project"
+    const val TRANSACTION = "transaction"
+    const val CATEGORY = "category"
+    const val RECURRING = "recurring"
+    const val SUBSCRIPTION = "subscription"
+    /** "Mark paid" action rows (`POST money/recurring/:id/pay`, `entityId` = the recurring id). */
+    const val RECURRING_PAY = "recurring-pay"
 }
 
 /**

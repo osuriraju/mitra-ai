@@ -19,6 +19,7 @@ import tech.beyondscale.mitra.data.local.UserCache
 import tech.beyondscale.mitra.data.remote.ApiClient
 import tech.beyondscale.mitra.data.remote.PersistentCookiesStorage
 import tech.beyondscale.mitra.data.repository.AuthRepositoryImpl
+import tech.beyondscale.mitra.data.repository.MoneyRepositoryImpl
 import tech.beyondscale.mitra.data.repository.PreferencesRepositoryImpl
 import tech.beyondscale.mitra.data.repository.SettingsRepositoryImpl
 import tech.beyondscale.mitra.data.repository.TasksRepositoryImpl
@@ -28,6 +29,7 @@ import tech.beyondscale.mitra.data.sync.PeriodicSyncController
 import tech.beyondscale.mitra.data.sync.SyncEngine
 import tech.beyondscale.mitra.domain.repository.AuthRepository
 import tech.beyondscale.mitra.domain.repository.ModuleRefresher
+import tech.beyondscale.mitra.domain.repository.MoneyRepository
 import tech.beyondscale.mitra.domain.repository.PreferencesRepository
 import tech.beyondscale.mitra.domain.repository.SettingsRepository
 import tech.beyondscale.mitra.domain.repository.SyncController
@@ -56,11 +58,14 @@ fun dataModule(baseUrl: String): Module = module {
     single<SettingsRepository>(createdAtStart = true) { SettingsRepositoryImpl(get(), get(), get(), get(), get(), get(), get()) }
     // Eager: registers the task/project sync handlers, which must exist before the first drain.
     single<TasksRepository>(createdAtStart = true) { TasksRepositoryImpl(get(), get(), get(), get(), get(), get(), get<AppScope>().scope) }
+    // Eager: registers the money sync handlers, which must exist before the first drain.
+    single<MoneyRepository>(createdAtStart = true) { MoneyRepositoryImpl(get(), get(), get(), get(), get(), get(), get<AppScope>().scope) }
     single<PreferencesRepository> { PreferencesRepositoryImpl(get()) }
     // Eager: it must see the first SignedIn and every drain from app start.
     single<ModuleRefresher>(createdAtStart = true) {
         val auth = get<AuthRepository>()
         val tasks = get<TasksRepository>()
+        val money = get<MoneyRepository>()
         val engine = get<SyncEngine>()
         ModuleRefresherImpl(
             session = auth.session,
@@ -71,6 +76,7 @@ fun dataModule(baseUrl: String): Module = module {
             modules = mapOf<String, suspend () -> Unit>(
                 "user" to { auth.refresh() },
                 "tasks" to { tasks.refresh() },
+                "money" to { money.refresh() },
             ),
         )
     }
