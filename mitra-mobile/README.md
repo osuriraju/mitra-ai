@@ -43,7 +43,7 @@ Long-press the home screen, open Widgets, and add **Mitra · Today**. Tasks can 
 
 ### Launch links
 Widgets open the app with these URIs (also usable for testing, e.g. `adb shell am start -n tech.beyondscale.mitra.debug/tech.beyondscale.mitra.android.MainActivity -a android.intent.action.VIEW -d mitra://money`):
-`mitra://task/<id>`, `mitra://tasks`, `mitra://quick-add/task`, `mitra://money`, `mitra://quick-add/expense`, `mitra://money/budgets`.
+`mitra://task/<id>`, `mitra://tasks`, `mitra://quick-add/task`, `mitra://money`, `mitra://quick-add/expense`, `mitra://money/budgets`, `mitra://checkin`, `mitra://ai`.
 
 ## Phase 4 – Habits + Goals
 Offline-first habits and goals (same outbox sync). **Habits:** Today / Week lists grouped by time of day, one-tap check-off (binary, count and duration habits; partial counts like `5/8`), swipe right to complete and **swipe left to archive**, both with Undo; habit detail (30-day ring, streaks, 12-week heatmap, trend, recent days with Mark done), an editable month history calendar, and a habit form (schedule presets or custom days, reminder time, goal link, gentle mode). **Delete is in the habit detail menu** (with a confirm). **Goals:** Active / Review due / Completed, goal detail (progress, milestones add / edit / tick with a milestone sheet, progress chart, next action, linked tasks / habits / projects, blockers), Log progress, a goal form, and the goal review as a swipeable step pager (Keep / Adjust target / Pause). Tasks and projects can link a goal (goal chips open it; "Add task" from a goal pre-links it). Today gains a Habits stat plus Habits and Goals cards in the Settings → Today sections order; Quick Add gains **Habit check**.
@@ -54,6 +54,22 @@ Notes:
 - Habit logs older than 400 days are only on the device that wrote them (`GET habits` returns the last 400 days).
 - Habit reminders are stored and synced but don't fire notifications until Phase 6.
 - Habits and Goals live in the More sheet (Habits takes the third tab when Money is off).
+
+## Phase 5 – Wellness + Notes + AI
+Offline-first through the same outbox. **Wellness:** daily check-in (mood, sleep, steps, water, weight/BMI, note; only tracked fields), trends, sleep detail and wellness settings (targets, tracked metrics, reminders, Share with AI, Show on Today). **Notes:** list with folder / tag filters, search across notes, tasks, goals and habits, a full-screen editor with debounced autosave and a formatting toolbar, and the journal by date (AI draft, or an offline draft from local data). **AI:** Ask Mitra chat with progressive reveal, proposal cards (preview → confirm) that apply through the normal repositories, suggestions, and the activity log with Revert. Today gains a **Check-in** card (mood picker that saves today's mood) when Wellness is on and *Show on Today* is set; Quick Add gains **Note** (creates the note, then opens the editor writing) and **Mood** (logs today's mood, or "Full check-in"). Wellness and AI live in the More sheet and fall back to Today when switched off; their data isn't refreshed while off.
+
+System integration (from the spec, pulled forward): **app shortcuts** (long-press the icon) New task · Add expense · Check-in · Ask Mitra, and a **share target** — sharing text or a link to Mitra opens Quick Add on Note, prefilled (subject on the first line).
+
+Rulings:
+- AI actions are logged with a client id; a retry returns the original row and a reused id is a 409 (backend fix `7a10fd6`), so a retried log or revert never duplicates. Reverts run oldest-first (FIFO) and apply the server's undo ops exactly once.
+- Chat history and suggestion state (dismissed / done) are device-local, as on the web.
+- **Share with AI** mirrors the web toggle: it sets wellness `shareAI` and also writes the account setting `shareWellness`. The backend includes wellness in AI context when either is on; turning the toggle off clears both, so wellness leaves AI context (the web has the same two-flag design).
+
+Known gaps:
+- Notes are last-write-wins (the server compares date-only `updatedAt`), so concurrent edits on two devices keep the later save.
+- There's no `POST activity` endpoint: the activity feed is read-only, and the journal's offline draft uses local data.
+- Some server-built labels use the server's time zone; AI "plan" proposals don't carry an amount; reverting a recurring item only restores its reminder.
+- Not ported: checklist → task suggestion and "Copy link" in the note editor.
 
 ## Run locally
 1. Start the backend (`cd ../mitra-backend && pnpm dev`; needs Postgres + Redis).
@@ -70,10 +86,21 @@ Debug builds allow cleartext HTTP only to `10.0.2.2`, `localhost`, `127.0.0.1` a
 4. `./gradlew :androidApp:installDebug`
 
 ## Test
-`./gradlew testAndroidHostTest` runs all shared unit tests on the JVM (661 tests at time of writing).
+`./gradlew testAndroidHostTest` runs all shared unit tests on the JVM (762 tests at time of writing).
 
 ## Device checklist
-Not yet run on a device (planned once, after Phase 6). The deferred checklists live in the plans: the "Deferred device checklist" sections of `docs/superpowers/plans/2026-10-14-android-phase2-tasks.md` (Tasks), `…-phase3-money.md` (Money) and `…-phase4-habits-goals.md` (Habits + Goals, items 27–43).
+Not yet run on a device (planned once, after Phase 6). The deferred checklists live in the plans: the "Deferred device checklist" sections of `docs/superpowers/plans/2026-10-14-android-phase2-tasks.md` (Tasks), `…-phase3-money.md` (Money) and `…-phase4-habits-goals.md` (Habits + Goals, items 27–43). Phase 5 (Wellness + Notes + AI):
+
+44. Check-in: save mood + sleep + steps offline → Trends and Sleep detail update; it syncs when online.
+45. Today Check-in card: tap a mood → snackbar, Wellness shows it; *Show on Today* off (or Wellness off) hides the card.
+46. Wellness settings → Share with AI off → Ask Mitra's context excludes wellness (and the web's Settings toggle shows off too).
+47. Notes: create from the list → editor opens writing; type, leave, reopen → text kept (autosave); search finds it.
+48. Journal: open today offline → offline draft; online → AI draft.
+49. Quick Add → Note "Idea" → editor opens on the new note; Quick Add → Mood → logged.
+50. Ask Mitra: a proposal card → Preview → Confirm applies it; Log → Revert undoes it; kill the app mid-confirm → no duplicate on retry.
+51. Settings → AI off / Wellness off → their screens fall back to Today; More no longer lists them; Mood chip disappears.
+52. Long-press the launcher icon → New task / Add expense / Check-in / Ask Mitra each open the right screen.
+53. Share a link from Chrome to Mitra → Quick Add opens on Note with the link; Create note → editor.
 
 ## Icons
 After changing `mitra-frontend/src/lib/icons.ts`:
