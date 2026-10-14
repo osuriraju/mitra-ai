@@ -21,9 +21,12 @@ import tech.beyondscale.mitra.data.repository.AuthRepositoryImpl
 import tech.beyondscale.mitra.data.repository.PreferencesRepositoryImpl
 import tech.beyondscale.mitra.data.repository.SettingsRepositoryImpl
 import tech.beyondscale.mitra.data.repository.TasksRepositoryImpl
+import tech.beyondscale.mitra.data.sync.ModuleRefresherImpl
 import tech.beyondscale.mitra.data.sync.OutboxWriter
+import tech.beyondscale.mitra.data.sync.PeriodicSyncController
 import tech.beyondscale.mitra.data.sync.SyncEngine
 import tech.beyondscale.mitra.domain.repository.AuthRepository
+import tech.beyondscale.mitra.domain.repository.ModuleRefresher
 import tech.beyondscale.mitra.domain.repository.PreferencesRepository
 import tech.beyondscale.mitra.domain.repository.SettingsRepository
 import tech.beyondscale.mitra.domain.repository.SyncController
@@ -32,7 +35,7 @@ import tech.beyondscale.mitra.domain.repository.TasksRepository
 /** Process-wide scope for repositories and sync (outlives screens). */
 class AppScope { val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default) }
 
-/** Platform modules must also provide: SqlDriver, SecureStore, HttpClientEngine, SyncScheduler. */
+/** Platform modules must also provide: SqlDriver, SecureStore, HttpClientEngine, SyncScheduler, PeriodicSync. */
 fun dataModule(baseUrl: String): Module = module {
     single { AppScope() }
     single<AppClock> { SystemClock }
@@ -52,4 +55,23 @@ fun dataModule(baseUrl: String): Module = module {
     // Eager: registers the task/project sync handlers, which must exist before the first drain.
     single<TasksRepository>(createdAtStart = true) { TasksRepositoryImpl(get(), get(), get(), get(), get(), get()) }
     single<PreferencesRepository> { PreferencesRepositoryImpl(get()) }
+    // Eager: it must see the first SignedIn and every drain from app start.
+    single<ModuleRefresher>(createdAtStart = true) {
+        val auth = get<AuthRepository>()
+        val tasks = get<TasksRepository>()
+        val engine = get<SyncEngine>()
+        ModuleRefresherImpl(
+            session = auth.session,
+            drained = engine.drained,
+            clock = get(),
+            scope = get<AppScope>().scope,
+            // Failures (offline, expired session) are ignored: the next trigger tries again.
+            modules = mapOf<String, suspend () -> Unit>(
+                "user" to { auth.refresh() },
+                "tasks" to { tasks.refresh() },
+            ),
+        )
+    }
+    // Eager: schedules the 15-minute job whenever the outbox has rows (survives process death via WorkManager).
+    single(createdAtStart = true) { PeriodicSyncController(get<SyncController>().pendingCount, get(), get<AppScope>().scope) }
 }

@@ -109,8 +109,9 @@ class TasksRepositoryImpl(
             }
             if (settled) return Outcome.Ok(Unit)
         }
-        // Still racing writes; the refresh after the queue drains will reconcile.
-        return Outcome.Ok(Unit)
+        // Still racing writes: applied nothing. Each racing write ends in a drain, and ModuleRefresherImpl refreshes
+        // the module once after every drain that sent rows, so this is reconciled without the caller retrying.
+        return Outcome.Err(AppError.Server(409, TasksRepository.REFRESH_SUPERSEDED, "Your changes are still syncing. Try again in a moment."))
     }
 
     /** Upsert everything the server has, delete what it no longer has — except records with queued changes. */
@@ -118,14 +119,18 @@ class TasksRepositoryImpl(
         val pendingTasks = pendingIds(TASK)
         val pendingProjects = pendingIds(PROJECT)
         val localTasks = db.tasksQueries.selectIds().executeAsList().toSet()
+        val localProjects = db.projectsQueries.selectIds().executeAsList().toSet()
         // Subtasks of a task whose DELETE is still queued: the server keeps them until that delete lands.
-        val incoming = body.tasks.filterNot { it.parentId != null && it.parentId in pendingTasks && it.parentId !in localTasks }
+        // Tasks of a project whose DELETE is still queued: the server moves them to the Inbox once it lands; do so now.
+        val incoming = body.tasks
+            .filterNot { it.parentId != null && it.parentId in pendingTasks && it.parentId !in localTasks }
+            .map { if (it.projectId != null && it.projectId in pendingProjects && it.projectId !in localProjects) it.copy(projectId = null) else it }
         val serverTaskIds = incoming.map { it.id }.toSet()
         localTasks.filter { it !in serverTaskIds && it !in pendingTasks }.forEach { db.tasksQueries.delete(it) }
         incoming.filter { it.id !in pendingTasks }.forEach { db.tasksQueries.upsert(it.toDomain().toRow()) }
 
         val serverProjectIds = body.projects.map { it.id }.toSet()
-        db.projectsQueries.selectIds().executeAsList().filter { it !in serverProjectIds && it !in pendingProjects }.forEach { db.projectsQueries.delete(it) }
+        localProjects.filter { it !in serverProjectIds && it !in pendingProjects }.forEach { db.projectsQueries.delete(it) }
         body.projects.filter { it.id !in pendingProjects }.forEach { db.projectsQueries.upsert(it.toDomain().toRow()) }
     }
 

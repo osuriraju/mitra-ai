@@ -29,6 +29,7 @@ import tech.beyondscale.mitra.domain.model.Project
 import tech.beyondscale.mitra.domain.model.Task
 import tech.beyondscale.mitra.domain.model.TaskChange
 import tech.beyondscale.mitra.domain.model.TaskDraft
+import tech.beyondscale.mitra.domain.repository.TasksRepository
 import tech.beyondscale.mitra.testing.FixedClock
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -241,5 +242,40 @@ class TasksRepositoryImplTest {
         assertNull(local("t1")!!.projectId)
         assertEquals(emptyList(), e.repo.projects.first())
         assertEquals("DELETE projects/p1", queue().single().let { "${it.method} ${it.path}" })
+    }
+
+    @Test fun refreshWhileProjectDeleteIsQueuedKeepsItsTasksInTheInbox() = runTest {
+        val e = env()
+        db.projectsQueries.upsert(Project("p1", "Work").toRow())
+        seed(Task("t1", "In project", projectId = "p1"))
+        server.offline = true
+        e.repo.deleteProject("p1")
+
+        // The server still has the project and its task until the queued DELETE lands.
+        server.offline = false
+        server.routes["GET /api/tasks/bootstrap"] = {
+            json(bootstrap(listOf(taskJson("t1", "In project", projectId = "p1"), taskJson("t2", "New on web", projectId = "p1")), listOf(projectJson("p1", "Work"))))
+        }
+        assertIs<Outcome.Ok<Unit>>(e.repo.refresh())
+        assertEquals(emptyList(), e.repo.projects.first())
+        assertNull(local("t1")!!.projectId)
+        assertNull(local("t2")!!.projectId)
+    }
+
+    @Test fun refreshThatKeepsLosingTheRaceReportsItAppliedNothing() = runTest {
+        val e = env()
+        seed(Task("t1", "Local"))
+        server.routes["POST /api/tasks"] = { json("{}") }
+        var gets = 0
+        server.routes["GET /api/tasks/bootstrap"] = {
+            gets++
+            e.repo.create(TaskDraft("Typed while refreshing #$gets")) // every snapshot is overtaken by a local write
+            json(bootstrap(emptyList()))
+        }
+        val r = e.repo.refresh()
+        assertEquals(3, gets)
+        // Not Ok: nothing was applied. The refresher refreshes again once the queue drains.
+        assertEquals(TasksRepository.REFRESH_SUPERSEDED, assertIs<AppError.Server>(assertIs<Outcome.Err>(r).error).code)
+        assertNotNull(local("t1"))
     }
 }

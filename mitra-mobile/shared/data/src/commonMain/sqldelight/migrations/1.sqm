@@ -30,3 +30,6 @@ CREATE TABLE projects (
   goalId TEXT,
   createdAt TEXT NOT NULL
 );
+
+-- Phase 1 counted every claim in `attempts`; it now counts only `500 INTERNAL` answers (poison-row rule).
+UPDATE outbox SET attempts = 0;

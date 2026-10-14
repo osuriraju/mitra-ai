@@ -24,8 +24,9 @@ class MigrationTest {
         driver.execute(null, "INSERT INTO pref(key, value) VALUES ('lastUserId', 'u1')", 0)
         driver.execute(
             null,
-            "INSERT INTO outbox(id, entity, method, path, body, coalesceKey, createdAt) " +
-                "VALUES ('o1', 'user-settings', 'PATCH', 'users/me/settings', '{}', 'user-settings', 0)",
+            // Phase 1 counted every claim as an attempt; Phase 2 counts only `500 INTERNAL` answers.
+            "INSERT INTO outbox(id, entity, method, path, body, coalesceKey, attempts, createdAt) " +
+                "VALUES ('o1', 'user-settings', 'PATCH', 'users/me/settings', '{}', 'user-settings', 5, 0)",
             0,
         )
 
@@ -39,6 +40,8 @@ class MigrationTest {
         val row = db.outboxQueries.selectAll().executeAsList().single()
         assertEquals("o1", row.id)
         assertNull(row.entityId)
+        // Inherited claim counts must not push the row towards the poison-row drop.
+        assertEquals(0L, row.attempts)
 
         // New tables work through the generated queries.
         db.tasksQueries.upsert(Tasks("t1", "Write", null, null, null, "2026-10-14", null, 30, "high", "todo", 0, null, null, "", null, null, 0, "user", "2026-10-14T04:30:00Z"))

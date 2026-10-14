@@ -13,7 +13,11 @@ interface TasksRepository {
     val tasks: Flow<List<Task>>
     val projects: Flow<List<Project>>
 
-    /** Re-reads tasks + projects from the server; local records with queued changes are kept. */
+    /**
+     * Re-reads tasks + projects from the server; local records with queued changes are kept. If local writes or
+     * server acknowledgements keep overtaking the snapshot, nothing is applied and the result is
+     * `Err(AppError.Server(code = REFRESH_SUPERSEDED))`; the module refresher reconciles after the queue drains.
+     */
     suspend fun refresh(): Outcome<Unit>
     suspend fun create(draft: TaskDraft): Task
     suspend fun update(id: String, changes: List<TaskChange>)
@@ -27,4 +31,9 @@ interface TasksRepository {
     suspend fun updateProject(id: String, name: String, emoji: String)
     /** Deletes the project; its tasks move to the Inbox (as on the server). */
     suspend fun deleteProject(id: String)
+
+    companion object {
+        /** [AppError.Server.code][tech.beyondscale.mitra.core.AppError.Server.code] of a refresh that applied nothing (see [refresh]). */
+        const val REFRESH_SUPERSEDED = "REFRESH_SUPERSEDED"
+    }
 }

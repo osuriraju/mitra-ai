@@ -9,7 +9,7 @@
         android:allowBackup="false"
         android:fullBackupContent="false"
         android:dataExtractionRules="@xml/data_extraction_rules"
-        android:usesCleartextTraffic="${cleartext}"
+        android:usesCleartextTraffic="false"
         android:enableOnBackInvokedCallback="true"
         android:theme="@style/Theme.Mitra">
         <activity

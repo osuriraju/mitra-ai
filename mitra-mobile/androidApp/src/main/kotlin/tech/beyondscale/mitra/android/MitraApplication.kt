@@ -9,6 +9,7 @@ import org.koin.core.context.startKoin
 import org.koin.dsl.module
 import tech.beyondscale.mitra.app.appModules
 import tech.beyondscale.mitra.data.platform.androidDataModule
+import tech.beyondscale.mitra.data.sync.PeriodicSync
 import tech.beyondscale.mitra.data.sync.SyncScheduler
 import tech.beyondscale.mitra.domain.repository.SyncController
 
@@ -19,7 +20,13 @@ class MitraApplication : Application() {
         startKoin {
             androidContext(this@MitraApplication)
             modules(
-                listOf(androidDataModule(this@MitraApplication), module { single<SyncScheduler> { WorkManagerSyncScheduler(this@MitraApplication) } }) +
+                listOf(
+                    androidDataModule(this@MitraApplication),
+                    module {
+                        single<SyncScheduler> { WorkManagerSyncScheduler(this@MitraApplication) }
+                        single<PeriodicSync> { WorkManagerPeriodicSync(this@MitraApplication) }
+                    },
+                ) +
                     appModules(BuildConfig.API_URL),
             )
         }

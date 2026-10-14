@@ -10,8 +10,10 @@ import org.koin.core.context.startKoin
 import org.koin.core.context.stopKoin
 import org.koin.dsl.module
 import tech.beyondscale.mitra.data.remote.SecureStore
+import tech.beyondscale.mitra.data.sync.PeriodicSync
 import tech.beyondscale.mitra.data.sync.SyncScheduler
 import tech.beyondscale.mitra.domain.repository.AuthRepository
+import tech.beyondscale.mitra.domain.repository.ModuleRefresher
 import tech.beyondscale.mitra.domain.repository.PreferencesRepository
 import tech.beyondscale.mitra.domain.repository.SettingsRepository
 import tech.beyondscale.mitra.domain.repository.SyncController
@@ -37,6 +39,7 @@ class AppModulesTest : ViewModelTest() {
         }
         single<HttpClientEngine> { MockEngine { respond("", HttpStatusCode.NotFound) } }
         single<SyncScheduler> { SyncScheduler {} }
+        single<PeriodicSync> { PeriodicSync {} }
     }
 
     private fun koin(): Koin = startKoin { modules(appModules("http://test.local/api/") + platform) }.koin
@@ -49,6 +52,7 @@ class AppModulesTest : ViewModelTest() {
         koin.get<SettingsRepository>()
         koin.get<PreferencesRepository>()
         koin.get<SyncController>()
+        koin.get<ModuleRefresher>()
         koin.get<RootViewModel>()
         koin.get<LoginViewModel>()
         koin.get<SignupViewModel>()

@@ -8,10 +8,12 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import org.koin.android.ext.android.inject
 import tech.beyondscale.mitra.app.MitraApp
+import tech.beyondscale.mitra.domain.repository.ModuleRefresher
 import tech.beyondscale.mitra.domain.repository.SyncController
 
 class MainActivity : ComponentActivity() {
     private val sync: SyncController by inject()
+    private val refresher: ModuleRefresher by inject()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -27,5 +29,6 @@ class MainActivity : ComponentActivity() {
     override fun onStart() {
         super.onStart()
         sync.requestSync()
+        refresher.onForeground()
     }
 }
