@@ -5,7 +5,9 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.key
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -22,10 +24,13 @@ import tech.beyondscale.mitra.domain.model.ThemeMode
 import tech.beyondscale.mitra.feature.auth.ForgotPasswordRoute
 import tech.beyondscale.mitra.feature.auth.LoginRoute
 import tech.beyondscale.mitra.feature.auth.SignupRoute
+import tech.beyondscale.mitra.feature.common.FileSaver
+import tech.beyondscale.mitra.feature.common.LocalFileSaver
+import tech.beyondscale.mitra.feature.onboarding.OnboardingRoute
 
 /** Root of the app on every platform. [onDarkTheme] lets the host style system bars. */
 @Composable
-fun MitraApp(onDarkTheme: (Boolean) -> Unit = {}, vm: RootViewModel = koinViewModel()) {
+fun MitraApp(onDarkTheme: (Boolean) -> Unit = {}, fileSaver: FileSaver? = null, vm: RootViewModel = koinViewModel()) {
     val state by vm.state.collectAsStateWithLifecycle()
     val dark = when (state.theme) {
         ThemeMode.Dark -> true
@@ -39,7 +44,14 @@ fun MitraApp(onDarkTheme: (Boolean) -> Unit = {}, vm: RootViewModel = koinViewMo
             when (val s = state.session) {
                 SessionState.Unknown -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { MitraMark() }
                 SessionState.SignedOut -> AuthNav()
-                is SessionState.SignedIn -> MainShell(s.user, state.sync, vm.messages)
+                // First run per account (web AuthGate): onboarding until the server records onboardedAt.
+                is SessionState.SignedIn -> if (s.user.onboardedAt == null) {
+                    key(s.user.id) { OnboardingRoute(s.user.firstName) }
+                } else {
+                    CompositionLocalProvider(LocalFileSaver provides (fileSaver ?: LocalFileSaver.current)) {
+                        MainShell(s.user, state.sync, vm.messages)
+                    }
+                }
             }
         }
     }

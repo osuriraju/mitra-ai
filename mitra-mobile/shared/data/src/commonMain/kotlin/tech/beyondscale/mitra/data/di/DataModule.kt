@@ -27,6 +27,8 @@ import tech.beyondscale.mitra.data.repository.MoneyRepositoryImpl
 import tech.beyondscale.mitra.data.repository.NotesRepositoryImpl
 import tech.beyondscale.mitra.data.repository.PreferencesRepositoryImpl
 import tech.beyondscale.mitra.data.repository.SettingsRepositoryImpl
+import tech.beyondscale.mitra.data.repository.AccountRepositoryImpl
+import tech.beyondscale.mitra.data.repository.SettingsEditorImpl
 import tech.beyondscale.mitra.data.repository.TasksRepositoryImpl
 import tech.beyondscale.mitra.data.repository.WellnessRepositoryImpl
 import tech.beyondscale.mitra.data.sync.ModuleRefresherImpl
@@ -45,6 +47,8 @@ import tech.beyondscale.mitra.domain.repository.MoneyRepository
 import tech.beyondscale.mitra.domain.repository.NotesRepository
 import tech.beyondscale.mitra.domain.repository.PreferencesRepository
 import tech.beyondscale.mitra.domain.repository.SettingsRepository
+import tech.beyondscale.mitra.domain.repository.AccountRepository
+import tech.beyondscale.mitra.domain.repository.SettingsEditor
 import tech.beyondscale.mitra.domain.repository.SyncController
 import tech.beyondscale.mitra.domain.repository.TasksRepository
 import tech.beyondscale.mitra.domain.repository.WellnessRepository
@@ -70,6 +74,8 @@ fun dataModule(baseUrl: String): Module = module {
     single<AuthRepository> { AuthRepositoryImpl(get(), get(), get(), get(), get(), get(), get(), get<AppScope>().scope) }
     // Eager: it registers the user-settings sync handler, which must exist before the first drain.
     single<SettingsRepository>(createdAtStart = true) { SettingsRepositoryImpl(get(), get(), get(), get(), get(), get(), get()) }
+    single<SettingsEditor> { SettingsEditorImpl(get(), get(), get(), get()) }
+    single<AccountRepository> { AccountRepositoryImpl(get(), get(), get(), get(), get()) }
     // Eager: registers the task/project sync handlers, which must exist before the first drain.
     single<TasksRepository>(createdAtStart = true) { TasksRepositoryImpl(get(), get(), get(), get(), get(), get(), get<AppScope>().scope) }
     // Eager: registers the money sync handlers, which must exist before the first drain.

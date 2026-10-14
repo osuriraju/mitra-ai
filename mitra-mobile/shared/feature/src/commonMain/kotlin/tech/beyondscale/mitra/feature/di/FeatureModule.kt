@@ -41,6 +41,9 @@ import tech.beyondscale.mitra.feature.money.TransactionsViewModel
 import tech.beyondscale.mitra.feature.money.TxEditorViewModel
 import tech.beyondscale.mitra.feature.quickadd.QuickAddViewModel
 import tech.beyondscale.mitra.feature.settings.SettingsViewModel
+import tech.beyondscale.mitra.feature.search.SearchViewModel
+import tech.beyondscale.mitra.feature.profile.ProfileViewModel
+import tech.beyondscale.mitra.feature.onboarding.OnboardingViewModel
 import tech.beyondscale.mitra.feature.tasks.FocusViewModel
 import tech.beyondscale.mitra.feature.tasks.ProjectDetailViewModel
 import tech.beyondscale.mitra.feature.tasks.TaskDetailViewModel
@@ -58,6 +61,9 @@ val featureModule = module {
     viewModelOf(::ForgotPasswordViewModel)
     viewModelOf(::TodayViewModel)
     viewModelOf(::SettingsViewModel)
+    viewModelOf(::SearchViewModel)
+    viewModelOf(::ProfileViewModel)
+    viewModelOf(::OnboardingViewModel)
     viewModelOf(::TasksViewModel)
     viewModelOf(::TaskEditorViewModel)
     viewModelOf(::QuickAddViewModel)

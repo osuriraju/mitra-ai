@@ -111,6 +111,13 @@ import tech.beyondscale.mitra.feature.quickadd.QuickAddSheet
 import tech.beyondscale.mitra.feature.quickadd.QuickAddViewModel
 import tech.beyondscale.mitra.feature.quickadd.QuickType
 import tech.beyondscale.mitra.feature.settings.SettingsRoute
+import tech.beyondscale.mitra.feature.settings.NotificationSettingsRoute
+import tech.beyondscale.mitra.feature.profile.ProfileRoute
+import tech.beyondscale.mitra.feature.search.SearchRoute
+import tech.beyondscale.mitra.feature.search.SearchTarget
+import tech.beyondscale.mitra.feature.ai.AiChatAction
+import tech.beyondscale.mitra.feature.ai.AiChatViewModel
+import tech.beyondscale.mitra.domain.search.SearchPlace
 import tech.beyondscale.mitra.feature.tasks.FocusRoute
 import tech.beyondscale.mitra.feature.tasks.ProjectDetailRoute
 import tech.beyondscale.mitra.feature.tasks.TaskDetailRoute
@@ -169,6 +176,8 @@ internal fun MainShell(user: User, sync: SyncStatus, messages: Flow<String>) {
     val launches: LaunchRequests = koinInject()
     var moreOpen by rememberSaveable { mutableStateOf(false) }
     var quickAddOpen by rememberSaveable { mutableStateOf(false) }
+    // "Ask Mitra: “q”" from search: sent once the AI chat is showing.
+    var pendingAsk by rememberSaveable { mutableStateOf<String?>(null) }
     var txFormOpen by rememberSaveable { mutableStateOf(false) }
     // Restored open (after process death, or for a new account's editor) with nothing started: don't show an empty sheet.
     LaunchedEffect(txEditor) { if (txFormOpen && !txEditor.state.value.ready) txFormOpen = false }
@@ -187,6 +196,8 @@ internal fun MainShell(user: User, sync: SyncStatus, messages: Flow<String>) {
     val wellnessDetail = WELLNESS_DETAIL_ROUTES.any { destination?.hasRoute(it) == true }
     val notesDetail = NOTES_DETAIL_ROUTES.any { destination?.hasRoute(it) == true }
     val aiDetail = AI_DETAIL_ROUTES.any { destination?.hasRoute(it) == true }
+    val settingsDetail = SETTINGS_DETAIL_ROUTES.any { destination?.hasRoute(it) == true }
+    val searching = destination?.hasRoute(SearchDest::class) == true
     // Money's sub-screens live under Money (none when the module is off); habit, goal, wellness, notes and AI screens
     // under their entry (none for a switched-off Wellness / AI); task and project detail and Focus under Tasks.
     val current = when {
@@ -196,6 +207,8 @@ internal fun MainShell(user: User, sync: SyncStatus, messages: Flow<String>) {
         wellnessDetail -> WELLNESS.takeIf { it in more }
         notesDetail -> NOTES
         aiDetail -> AI.takeIf { it in more }
+        settingsDetail -> SETTINGS
+        searching -> null // over whatever tab it was opened from; highlights none
         isDetail(chrome) -> TASKS
         else -> (tabs + more).firstOrNull { d -> destination?.hierarchy?.any { it.hasRoute(d.route::class) } == true }
     }
@@ -209,6 +222,7 @@ internal fun MainShell(user: User, sync: SyncStatus, messages: Flow<String>) {
     fun openHabit(id: String) = nav.navigate(HabitDetailDest(id))
     fun openGoal(id: String) = nav.navigate(GoalDetailDest(id))
     fun openNote(id: String) = nav.navigate(NoteEditorDest(id))
+    fun openSearch() { if (!searching) nav.navigate(SearchDest) { launchSingleTop = true } }
     /** Wellness / AI root, or Today when that module is off. */
     fun goIf(on: Boolean, route: Any) = go(if (on) route else TodayDest)
     fun openTxForm(editId: String?) {
@@ -239,6 +253,28 @@ internal fun MainShell(user: User, sync: SyncStatus, messages: Flow<String>) {
             CategoriesNav.InMoneyStack -> if (!nav.popBackStack<CategoriesDest>(inclusive = false)) nav.navigate(CategoriesDest)
             CategoriesNav.ViaMoneyRoot -> if (goMoneyRoot()) nav.navigate(CategoriesDest)
             CategoriesNav.Unavailable -> Unit
+        }
+    }
+    fun goToPlace(p: SearchPlace) {
+        when (p) {
+            SearchPlace.Today -> go(TodayDest)
+            SearchPlace.Tasks -> go(TasksDest)
+            SearchPlace.Focus -> nav.navigate(FocusDest())
+            SearchPlace.Money -> goMoneyRoot()
+            SearchPlace.Transactions -> if (goMoneyRoot()) nav.navigate(TransactionsDest())
+            SearchPlace.Budgets -> if (goMoneyRoot()) nav.navigate(BudgetsDest)
+            SearchPlace.Recurring -> if (goMoneyRoot()) nav.navigate(RecurringDest)
+            SearchPlace.Subscriptions -> if (goMoneyRoot()) nav.navigate(SubscriptionsDest)
+            SearchPlace.Habits -> go(HabitsDest)
+            SearchPlace.Goals -> go(GoalsDest)
+            SearchPlace.GoalReview -> { go(GoalsDest); nav.navigate(GoalReviewDest) }
+            SearchPlace.Wellness -> goIf(modules.wellness, WellnessDest)
+            SearchPlace.Notes -> go(NotesDest)
+            SearchPlace.Journal -> { go(NotesDest); nav.navigate(JournalDest) }
+            SearchPlace.Ai -> goIf(modules.ai, AiDest)
+            SearchPlace.AiActivity -> if (modules.ai) { go(AiDest); nav.navigate(AiLogDest) }
+            SearchPlace.Settings -> go(SettingsDest)
+            SearchPlace.Profile -> { go(SettingsDest); nav.navigate(ProfileDest) }
         }
     }
     // Never pop the last entry (a double tap on Back would otherwise leave an empty NavHost).
@@ -320,6 +356,7 @@ internal fun MainShell(user: User, sync: SyncStatus, messages: Flow<String>) {
 
         val shellActions: @Composable RowScope.() -> Unit = {
             syncLabel(sync)?.let { (text, tone) -> SyncPill(text, tone) }
+            IconButton(onClick = ::openSearch) { Icon(MitraIcons.Search, contentDescription = "Search", tint = Mitra.colors.text) }
             IconButton(onClick = { go(SettingsDest) }) { Avatar(user.initials) }
         }
 
@@ -498,7 +535,10 @@ internal fun MainShell(user: User, sync: SyncStatus, messages: Flow<String>) {
                     )
                 }
                 composable<AiDest> {
+                    val aiVm: AiChatViewModel = koinViewModel()
+                    LaunchedEffect(pendingAsk) { pendingAsk?.let { aiVm.onAction(AiChatAction.Send(it)); pendingAsk = null } }
                     AiChatRoute(
+                        vm = aiVm,
                         onOpenLog = { nav.navigate(AiLogDest) },
                         onOpenSuggestions = { nav.navigate(AiSuggestionsDest) },
                         onOpenModule = { module ->
@@ -513,7 +553,35 @@ internal fun MainShell(user: User, sync: SyncStatus, messages: Flow<String>) {
                 }
                 composable<AiSuggestionsDest> { AiSuggestionsRoute(onBack = ::back, onOpenLog = { nav.navigate(AiLogDest) }) }
                 composable<AiLogDest> { AiLogRoute(onBack = ::back) }
-                composable<SettingsDest> { SettingsRoute() }
+                composable<SettingsDest> {
+                    SettingsRoute(
+                        onOpenProfile = { nav.navigate(ProfileDest) },
+                        onOpenNotifications = { nav.navigate(NotificationSettingsDest) },
+                        onOpenAiLog = { if (modules.ai) nav.navigate(AiLogDest) },
+                    )
+                }
+                composable<ProfileDest> { ProfileRoute(onBack = ::back) }
+                composable<NotificationSettingsDest> {
+                    Column {
+                        MitraTopBar("Notifications", onBack = ::back)
+                        NotificationSettingsRoute()
+                    }
+                }
+                composable<SearchDest> {
+                    SearchRoute(onBack = ::back, onOpen = { t ->
+                        // Results replace the search screen, so Back returns to where search was opened.
+                        nav.popBackStack<SearchDest>(inclusive = true)
+                        when (t) {
+                            is SearchTarget.OpenTask -> openTask(t.id)
+                            is SearchTarget.OpenNote -> openNote(t.id)
+                            is SearchTarget.OpenGoal -> openGoal(t.id)
+                            is SearchTarget.OpenHabit -> openHabit(t.id)
+                            is SearchTarget.OpenTransaction -> if (modules.money) openTxForm(t.id)
+                            is SearchTarget.AskAi -> if (modules.ai) { pendingAsk = t.q; go(AiDest) }
+                            is SearchTarget.GoTo -> goToPlace(t.place)
+                        }
+                    })
+                }
             }
         }
 

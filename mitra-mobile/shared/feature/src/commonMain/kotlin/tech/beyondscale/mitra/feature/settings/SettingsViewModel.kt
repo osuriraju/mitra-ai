@@ -12,7 +12,10 @@ import kotlinx.coroutines.launch
 import tech.beyondscale.mitra.domain.model.ModuleKey
 import tech.beyondscale.mitra.domain.model.Modules
 import tech.beyondscale.mitra.domain.model.SessionState
+import tech.beyondscale.mitra.domain.model.Settings
 import tech.beyondscale.mitra.domain.model.ThemeMode
+import tech.beyondscale.mitra.domain.repository.SettingChange
+import tech.beyondscale.mitra.domain.repository.SettingsEditor
 import tech.beyondscale.mitra.domain.repository.AuthRepository
 import tech.beyondscale.mitra.domain.repository.PreferencesRepository
 import tech.beyondscale.mitra.domain.repository.SettingsRepository
@@ -26,12 +29,14 @@ data class SettingsUiState(
     val modules: Modules = Modules(),
     val pending: Long = 0,
     val signingOut: Boolean = false,
+    val settings: Settings = Settings(),
 )
 
 sealed interface SettingsAction {
     data class SetTheme(val mode: ThemeMode) : SettingsAction
     data class SetModule(val key: ModuleKey, val on: Boolean) : SettingsAction
     data object SignOut : SettingsAction
+    data class Change(val change: SettingChange) : SettingsAction
 }
 
 class SettingsViewModel(
@@ -39,17 +44,19 @@ class SettingsViewModel(
     private val settings: SettingsRepository,
     private val prefs: PreferencesRepository,
     sync: SyncController,
+    private val editor: SettingsEditor,
 ) : ViewModel() {
     private val signingOut = MutableStateFlow(false)
 
     val state: StateFlow<SettingsUiState> = combine(auth.session, prefs.theme, sync.pendingCount, signingOut) { session, theme, pending, out ->
         val user = (session as? SessionState.SignedIn)?.user
-        SettingsUiState(user?.name.orEmpty(), user?.email.orEmpty(), user?.initials.orEmpty(), theme, user?.settings?.modules ?: Modules(), pending, out)
+        SettingsUiState(user?.name.orEmpty(), user?.email.orEmpty(), user?.initials.orEmpty(), theme, user?.settings?.modules ?: Modules(), pending, out, user?.settings ?: Settings())
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SettingsUiState())
 
     fun onAction(action: SettingsAction) {
         when (action) {
             is SettingsAction.SetTheme -> viewModelScope.launch { prefs.setTheme(action.mode) }
+            is SettingsAction.Change -> viewModelScope.launch { editor.update(action.change) }
             is SettingsAction.SetModule -> viewModelScope.launch { settings.setModule(action.key, action.on) }
             SettingsAction.SignOut -> {
                 signingOut.value = true

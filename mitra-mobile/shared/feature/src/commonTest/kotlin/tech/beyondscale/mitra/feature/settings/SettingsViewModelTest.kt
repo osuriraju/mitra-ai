@@ -27,7 +27,8 @@ class SettingsViewModelTest : ViewModelTest() {
     private val settings = FakeSettingsRepository()
     private val prefs = FakePreferencesRepository()
     private val sync = FakeSyncController()
-    private fun vm() = SettingsViewModel(auth, settings, prefs, sync)
+    private val editor = tech.beyondscale.mitra.testing.FakeSettingsEditor()
+    private fun vm() = SettingsViewModel(auth, settings, prefs, sync, editor)
 
     @Test fun exposesAccountThemeAndPending() = runTest {
         sync.pending.value = 3
@@ -62,9 +63,19 @@ class SettingsViewModelTest : ViewModelTest() {
             override suspend fun forgotPassword(email: String): Outcome<Unit> = error("unused")
             override suspend fun logout() { throw IllegalStateException("boom") }
         }
-        val vm = SettingsViewModel(failing, settings, prefs, sync)
+        val vm = SettingsViewModel(failing, settings, prefs, sync, editor)
         backgroundScope.launch { vm.state.collect {} }
         runCatching { vm.onAction(SettingsAction.SignOut) }
         assertEquals(false, vm.state.value.signingOut)
+    }
+
+    @Test fun settingChangesGoToTheEditor() {
+        val vm = vm()
+        vm.onAction(SettingsAction.Change(tech.beyondscale.mitra.domain.repository.SettingChange.Digest(false)))
+        vm.onAction(SettingsAction.Change(tech.beyondscale.mitra.domain.repository.SettingChange.FocusMinutes(45)))
+        assertEquals(
+            listOf(tech.beyondscale.mitra.domain.repository.SettingChange.Digest(false), tech.beyondscale.mitra.domain.repository.SettingChange.FocusMinutes(45)),
+            editor.changes,
+        )
     }
 }

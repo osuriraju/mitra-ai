@@ -12,6 +12,11 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import tech.beyondscale.mitra.feature.common.FileSaver
+import tech.beyondscale.mitra.feature.common.SaveResult
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import tech.beyondscale.mitra.domain.repository.AuthRepository
@@ -28,6 +33,27 @@ class MainActivity : ComponentActivity() {
     private val sync: SyncController by inject()
     private val refresher: ModuleRefresher by inject()
     private val launches: LaunchRequests by inject()
+
+    // Data export (Profile): the system "Save to" picker, then the JSON written to the chosen document.
+    private var pendingExport: Pair<String, CompletableDeferred<SaveResult>>? = null
+    private val createDocument = registerForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
+        val (content, done) = pendingExport ?: return@registerForActivityResult
+        pendingExport = null
+        if (uri == null) { done.complete(SaveResult.Cancelled); return@registerForActivityResult }
+        lifecycleScope.launch {
+            val ok = withContext(Dispatchers.IO) {
+                runCatching { contentResolver.openOutputStream(uri)?.use { it.write(content.toByteArray()) } != null }.getOrDefault(false)
+            }
+            done.complete(if (ok) SaveResult.Saved else SaveResult.Failed)
+        }
+    }
+    private val fileSaver = FileSaver { name, _, content ->
+        pendingExport?.second?.complete(SaveResult.Cancelled)
+        val done = CompletableDeferred<SaveResult>()
+        pendingExport = content to done
+        createDocument.launch(name)
+        done.await()
+    }
     private val auth: AuthRepository by inject()
     private val notificationPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) {}
 
@@ -38,7 +64,7 @@ class MainActivity : ComponentActivity() {
         askForNotificationsOnceSignedIn()
         enableEdgeToEdge()
         setContent {
-            MitraApp(onDarkTheme = { dark ->
+            MitraApp(fileSaver = fileSaver, onDarkTheme = { dark ->
                 val style = if (dark) SystemBarStyle.dark(Color.TRANSPARENT) else SystemBarStyle.light(Color.TRANSPARENT, Color.TRANSPARENT)
                 enableEdgeToEdge(statusBarStyle = style, navigationBarStyle = style)
             })

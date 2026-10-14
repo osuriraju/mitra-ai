@@ -46,6 +46,11 @@ import kotlin.reflect.KClass
 @Serializable data object AiSuggestionsDest
 @Serializable data object AiLogDest
 
+/** Global search (web ⌘K), Profile and notification settings — stacked over the current tab / Settings. */
+@Serializable data object SearchDest
+@Serializable data object ProfileDest
+@Serializable data object NotificationSettingsDest
+
 /**
  * How much of the shell a route shows: both bars ([Tab]); the bottom bar with the screen drawing its own top bar
  * (a tab, [TabOwnBar], or a back-bar [Detail] screen); or none ([Fullscreen]).
@@ -60,6 +65,7 @@ private val NON_TAB_ROUTES = listOf(
     WellnessDest::class, WellnessTrendsDest::class, SleepDetailDest::class, WellnessSettingsDest::class,
     NotesDest::class, NotesSearchDest::class, JournalDest::class, NoteEditorDest::class,
     AiDest::class, AiSuggestionsDest::class, AiLogDest::class,
+    SearchDest::class, ProfileDest::class, NotificationSettingsDest::class,
 )
 
 /** Detail routes that belong to the Money tab (the rest of the detail routes live under Tasks). */
@@ -71,6 +77,7 @@ internal val GOAL_DETAIL_ROUTES = listOf(GoalDetailDest::class, GoalReviewDest::
 internal val WELLNESS_DETAIL_ROUTES = listOf(WellnessTrendsDest::class, SleepDetailDest::class, WellnessSettingsDest::class)
 internal val NOTES_DETAIL_ROUTES = listOf(NotesSearchDest::class, JournalDest::class, NoteEditorDest::class)
 internal val AI_DETAIL_ROUTES = listOf(AiSuggestionsDest::class, AiLogDest::class)
+internal val SETTINGS_DETAIL_ROUTES = listOf(ProfileDest::class, NotificationSettingsDest::class)
 
 /** The chrome for the current destination, given its `hasRoute` check (how MainShell resolves it). */
 internal fun chromeForDestination(hasRoute: (KClass<*>) -> Boolean): Chrome = chromeFor(NON_TAB_ROUTES.firstOrNull(hasRoute))
@@ -79,6 +86,7 @@ internal fun chromeFor(route: KClass<*>?): Chrome = when (route) {
     TaskDetailDest::class, ProjectDetailDest::class -> Chrome.Detail
     in MONEY_DETAIL_ROUTES, in HABIT_DETAIL_ROUTES, in GOAL_DETAIL_ROUTES -> Chrome.Detail
     in WELLNESS_DETAIL_ROUTES, in NOTES_DETAIL_ROUTES, in AI_DETAIL_ROUTES -> Chrome.Detail
+    in SETTINGS_DETAIL_ROUTES, SearchDest::class -> Chrome.Detail
     FocusDest::class -> Chrome.Fullscreen
     TasksDest::class, MoneyDest::class, HabitsDest::class, GoalsDest::class -> Chrome.TabOwnBar
     WellnessDest::class, NotesDest::class, AiDest::class -> Chrome.TabOwnBar
