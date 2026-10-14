@@ -5,7 +5,7 @@ export const id = z.string().uuid();
 export const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Date must be YYYY-MM-DD');
 export const hhmm = z.string().regex(/^\d{2}:\d{2}$/, 'Time must be HH:MM');
 /** Rupees with at most 2 decimals; stored as paise. */
-export const amount = z.number().positive('Enter an amount').max(1e9).refine((n) => Math.round(n * 100) === n * 100, 'Amounts can have at most 2 decimals');
+export const amount = z.number().positive('Enter an amount').max(1e9).refine((n) => Math.abs(Math.round(n * 100) - n * 100) < 1e-6, 'Amounts can have at most 2 decimals');
 const emoji = z.string().trim().min(1).max(8);
 
 export const CreateAccountSchema = z.object({ id: id.optional(), name: z.string().trim().min(1, 'Enter an account name').max(60), mask: z.string().trim().max(40).default(''), kind: z.enum(['bank', 'credit', 'cash']).default('bank'), balance: z.number().max(1e10).min(-1e10).default(0) });
