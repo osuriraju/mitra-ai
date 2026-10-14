@@ -95,6 +95,13 @@ class HabitEditorViewModelTest : ViewModelTest() {
         assertEquals(listOf(null to "None — optional", "g1" to "Run a 10K"), h.state.goals.map { it.id to it.label })
     }
 
+    @Test fun nameAndUnitAreCappedLikeTheServer() = runTest {
+        val h = start()
+        h.act(HabitEditorAction.Open(), HabitEditorAction.Name("x".repeat(90)), HabitEditorAction.Unit("u".repeat(25)))
+        assertEquals(80, h.form.name.length)
+        assertEquals(20, h.form.unit.length)
+    }
+
     @Test fun validationOrder() = runTest {
         val h = start()
         h.act(HabitEditorAction.Open(), HabitEditorAction.Name("  "), HabitEditorAction.Save)

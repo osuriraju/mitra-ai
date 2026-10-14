@@ -169,7 +169,7 @@ fun MilestoneFormSheet(
                 }
                 MitraTextField(
                     value = title,
-                    onValueChange = { title = it },
+                    onValueChange = { title = it.take(MILESTONE_TITLE_LIMIT) },
                     label = "Milestone",
                     placeholder = "e.g. ₹75,000",
                     imeAction = ImeAction.Done,
@@ -327,3 +327,6 @@ internal fun GoalTextLink(text: String, onClick: () -> Unit, modifier: Modifier 
         modifier = modifier.heightIn(min = 48.dp).clickable(role = Role.Button, onClick = onClick).padding(horizontal = 4.dp, vertical = 14.dp),
     )
 }
+
+/** Server cap on milestone titles (mitra-backend/src/goals/schemas.ts); longer titles are rejected and vanish on refresh. */
+private const val MILESTONE_TITLE_LIMIT = 120

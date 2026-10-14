@@ -138,11 +138,11 @@ class HabitEditorViewModel(
                 )
             }
             HabitEditorAction.Dismiss -> close()
-            is HabitEditorAction.Name -> form.update { it.copy(name = a.v, error = null) }
+            is HabitEditorAction.Name -> form.update { it.copy(name = a.v.take(HABIT_NAME_MAX), error = null) }
             is HabitEditorAction.Icon -> form.update { it.copy(icon = a.id) }
             is HabitEditorAction.Type -> form.update { it.copy(type = a.t, unit = defaultUnit(a.t)) }
             is HabitEditorAction.Target -> form.update { it.copy(target = a.v.filter(Char::isDigit).take(TARGET_MAX_DIGITS)) }
-            is HabitEditorAction.Unit -> form.update { it.copy(unit = a.v) }
+            is HabitEditorAction.Unit -> form.update { it.copy(unit = a.v.take(HABIT_UNIT_MAX)) }
             is HabitEditorAction.TimeOfDay -> form.update { it.copy(timeOfDay = a.t) }
             is HabitEditorAction.Schedule -> presetDays(a.preset)?.let { d -> form.update { it.copy(days = d, error = null) } }
             is HabitEditorAction.ToggleDay -> if (a.i in 0..6) {
@@ -229,6 +229,10 @@ class HabitEditorViewModel(
 private const val DEFAULT_REMINDER = "21:30"
 private const val TARGET_MAX = 100_000
 private const val TARGET_MAX_DIGITS = 6
+
+// Server limits (habits/schemas.ts): longer values are rejected and the habit vanishes on the next refresh.
+private const val HABIT_NAME_MAX = 80
+private const val HABIT_UNIT_MAX = 20
 private val NO_GOAL = HabitGoalOption(null, "None — optional")
 
 /** Web: duration → minutes, count → times, quantity → glasses, binary → "". */
