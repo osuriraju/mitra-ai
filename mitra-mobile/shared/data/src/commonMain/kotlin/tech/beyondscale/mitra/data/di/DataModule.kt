@@ -20,12 +20,14 @@ import tech.beyondscale.mitra.data.remote.PersistentCookiesStorage
 import tech.beyondscale.mitra.data.repository.AuthRepositoryImpl
 import tech.beyondscale.mitra.data.repository.PreferencesRepositoryImpl
 import tech.beyondscale.mitra.data.repository.SettingsRepositoryImpl
+import tech.beyondscale.mitra.data.repository.TasksRepositoryImpl
 import tech.beyondscale.mitra.data.sync.OutboxWriter
 import tech.beyondscale.mitra.data.sync.SyncEngine
 import tech.beyondscale.mitra.domain.repository.AuthRepository
 import tech.beyondscale.mitra.domain.repository.PreferencesRepository
 import tech.beyondscale.mitra.domain.repository.SettingsRepository
 import tech.beyondscale.mitra.domain.repository.SyncController
+import tech.beyondscale.mitra.domain.repository.TasksRepository
 
 /** Process-wide scope for repositories and sync (outlives screens). */
 class AppScope { val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default) }
@@ -47,5 +49,7 @@ fun dataModule(baseUrl: String): Module = module {
     single<AuthRepository> { AuthRepositoryImpl(get(), get(), get(), get(), get(), get(), get(), get<AppScope>().scope) }
     // Eager: it registers the user-settings sync handler, which must exist before the first drain.
     single<SettingsRepository>(createdAtStart = true) { SettingsRepositoryImpl(get(), get(), get(), get(), get(), get(), get()) }
+    // Eager: registers the task/project sync handlers, which must exist before the first drain.
+    single<TasksRepository>(createdAtStart = true) { TasksRepositoryImpl(get(), get(), get(), get(), get(), get()) }
     single<PreferencesRepository> { PreferencesRepositoryImpl(get()) }
 }
