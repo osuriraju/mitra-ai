@@ -1,6 +1,15 @@
 package tech.beyondscale.mitra.feature.quickadd
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.material3.Icon
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.font.FontWeight
+import tech.beyondscale.mitra.designsystem.components.MitraCard
+import tech.beyondscale.mitra.feature.habits.HabitRow
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -81,15 +90,21 @@ private fun QuickAddContent(state: QuickAddUiState, onAction: (QuickAddAction) -
             value = state.text,
             onValueChange = { onAction(QuickAddAction.Text(it)) },
             label = if (state.type == QuickType.Task) "Task" else state.type.label,
-            placeholder = if (state.type == QuickType.Expense) "₹240 food lunch" else "Call John tomorrow p1 #work",
+            placeholder = when (state.type) {
+                QuickType.Expense -> "₹240 food lunch"
+                QuickType.Habit -> "Search today's habits"
+                else -> "Call John tomorrow p1 #work"
+            },
             error = state.error,
             keyboardType = KeyboardType.Text,
-            imeAction = ImeAction.Done,
-            onImeAction = { onAction(QuickAddAction.Save) },
+            imeAction = if (state.type == QuickType.Habit) ImeAction.Search else ImeAction.Done,
+            onImeAction = { if (state.type == QuickType.Habit) keyboard?.hide() else onAction(QuickAddAction.Save) },
             fieldModifier = Modifier.focusRequester(focus),
         )
         if (state.notice != null) {
             Text(state.notice, style = Mitra.type.body, color = c.muted)
+        } else if (state.type == QuickType.Habit) {
+            HabitCheckList(state, onAction)
         } else if (state.type == QuickType.Expense) {
             if (state.amountLabel != null || state.categoryLabel != null) {
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -114,11 +129,42 @@ private fun QuickAddContent(state: QuickAddUiState, onAction: (QuickAddAction) -
                 }
             }
         }
-        MitraButton(
-            if (state.type == QuickType.Expense) "Save expense" else "Add",
-            onClick = { onAction(QuickAddAction.Save) },
-            enabled = state.canSave,
-            modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
-        )
+        if (state.type != QuickType.Habit) {
+            MitraButton(
+                if (state.type == QuickType.Expense) "Save expense" else "Add",
+                onClick = { onAction(QuickAddAction.Save) },
+                enabled = state.canSave,
+                modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
+            )
+        }
+    }
+}
+
+/** Habit check: due-today habits matching the text, each with its check button, then a "New habit" row. */
+@Composable
+private fun HabitCheckList(state: QuickAddUiState, onAction: (QuickAddAction) -> Unit) {
+    val c = Mitra.colors
+    MitraCard(Modifier.padding(bottom = 12.dp), contentPadding = PaddingValues(0.dp)) {
+        if (state.habitRows.isEmpty() && state.text.isBlank()) {
+            Text("No habits due today", style = Mitra.type.sm, color = c.muted, modifier = Modifier.padding(14.dp))
+        }
+        state.habitRows.forEach { row ->
+            val check = { onAction(QuickAddAction.CheckHabit(row.id)) }
+            HabitRow(row, onCheck = check, onOpen = check)
+        }
+        val name = state.text.trim()
+        Row(
+            Modifier.fillMaxWidth().heightIn(min = 52.dp).clickable(role = Role.Button) { onAction(QuickAddAction.NewHabit) }
+                .padding(horizontal = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Icon(MitraIcons.Plus, contentDescription = null, tint = c.accent)
+            Text(
+                if (name.isEmpty()) "New habit" else "New habit \u201c$name\u201d",
+                style = Mitra.type.body.copy(fontWeight = FontWeight.Medium),
+                color = c.accent,
+            )
+        }
     }
 }

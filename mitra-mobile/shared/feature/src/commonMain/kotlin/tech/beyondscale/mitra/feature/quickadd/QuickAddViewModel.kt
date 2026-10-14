@@ -2,12 +2,14 @@ package tech.beyondscale.mitra.feature.quickadd
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -17,11 +19,13 @@ import tech.beyondscale.mitra.core.fmtDay
 import tech.beyondscale.mitra.core.inrPaise
 import tech.beyondscale.mitra.core.localNow
 import tech.beyondscale.mitra.core.today
+import tech.beyondscale.mitra.domain.habits.habitsDueToday
 import tech.beyondscale.mitra.domain.model.Project
 import tech.beyondscale.mitra.domain.model.TaskDraft
 import tech.beyondscale.mitra.domain.model.TxDraft
 import tech.beyondscale.mitra.domain.model.TxKind
 import tech.beyondscale.mitra.domain.money.ExpenseParser
+import tech.beyondscale.mitra.domain.repository.HabitsRepository
 import tech.beyondscale.mitra.domain.repository.MoneyRepository
 import tech.beyondscale.mitra.domain.repository.TasksRepository
 import tech.beyondscale.mitra.domain.tasks.ParsedField
@@ -30,12 +34,15 @@ import tech.beyondscale.mitra.domain.tasks.QuickAddParser
 import tech.beyondscale.mitra.feature.common.EventQueue
 import tech.beyondscale.mitra.feature.common.HapticKind
 import tech.beyondscale.mitra.feature.common.UiEvent
+import tech.beyondscale.mitra.feature.habits.HabitRowUi
+import tech.beyondscale.mitra.feature.habits.habitRowUi
+import tech.beyondscale.mitra.feature.today.checkHabit
 
 /** [arrivesWith] is the module whose phase delivers the type; null means it works today. */
 enum class QuickType(val label: String, val arrivesWith: String?) {
     Task("Task", null),
     Expense("Expense", null),
-    Habit("Habit check", "Habits"),
+    Habit("Habit check", null),
     Note("Note", "Notes"),
     Mood("Mood", "Wellness"),
 }
@@ -56,7 +63,15 @@ data class QuickAddUiState(
     val notice: String? = null,
     val canSave: Boolean = true,
     val error: String? = null,
+    /** Habit check: due-today habits whose name contains the typed text (case-insensitive). */
+    val habitRows: List<HabitRowUi> = emptyList(),
 )
+
+/** Navigation for the shell. */
+sealed interface QuickAddEvent {
+    /** Open the habit form pre-named ([HabitEditorAction.Open][tech.beyondscale.mitra.feature.habits.HabitEditorAction.Open]). */
+    data class NewHabit(val name: String) : QuickAddEvent
+}
 
 sealed interface QuickAddAction {
     data class Text(val v: String) : QuickAddAction
@@ -70,17 +85,27 @@ sealed interface QuickAddAction {
     data object Reset : QuickAddAction
     data class DeleteCreated(val id: String) : QuickAddAction
     data class UndoExpense(val id: String) : QuickAddAction
+    data class CheckHabit(val id: String) : QuickAddAction
+    data class UndoHabit(val id: String, val date: String, val value: Int?) : QuickAddAction
+    data object NewHabit : QuickAddAction
 }
 
 /** Shell-scoped so the "Added" Undo still works after the sheet has closed. */
-class QuickAddViewModel(private val tasks: TasksRepository, private val money: MoneyRepository, private val clock: AppClock) : ViewModel() {
+class QuickAddViewModel(
+    private val tasks: TasksRepository,
+    private val money: MoneyRepository,
+    private val habits: HabitsRepository,
+    private val clock: AppClock,
+) : ViewModel() {
     private data class Input(val text: String = "", val type: QuickType = QuickType.Task, val ignore: Set<ParsedField> = emptySet(), val error: String? = null)
 
     private val input = MutableStateFlow(Input())
     private val queue = EventQueue<QuickAddAction>()
     val events: Flow<UiEvent<QuickAddAction>> = queue.events
+    private val nav = Channel<QuickAddEvent>(Channel.BUFFERED)
+    val navigation: Flow<QuickAddEvent> = nav.receiveAsFlow()
 
-    val state: StateFlow<QuickAddUiState> = combine(input, tasks.projects, money.categories, clock.dayFlow()) { i, projects, categories, today ->
+    val state: StateFlow<QuickAddUiState> = combine(input, tasks.projects, money.categories, habits.habits, clock.dayFlow()) { i, projects, categories, allHabits, today ->
         val p = QuickAddParser.parse(i.text, today, projects, i.ignore)
         val e = if (i.type == QuickType.Expense) ExpenseParser.parse(i.text, categories, i.ignore) else null
         QuickAddUiState(
@@ -100,6 +125,10 @@ class QuickAddViewModel(private val tasks: TasksRepository, private val money: M
                 else -> false
             },
             error = i.error,
+            habitRows = if (i.type != QuickType.Habit) emptyList() else {
+                val q = i.text.trim()
+                habitsDueToday(allHabits, today).filter { it.name.contains(q, ignoreCase = true) }.map { habitRowUi(it, today) }
+            },
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), QuickAddUiState())
 
@@ -116,6 +145,16 @@ class QuickAddViewModel(private val tasks: TasksRepository, private val money: M
             QuickAddAction.Reset -> input.value = Input()
             is QuickAddAction.DeleteCreated -> viewModelScope.launch { tasks.delete(a.id) }
             is QuickAddAction.UndoExpense -> viewModelScope.launch { money.deleteTransaction(a.id) }
+            is QuickAddAction.CheckHabit -> viewModelScope.launch {
+                queue.checkHabit(habits, a.id, clock.today()) { id, date, v -> QuickAddAction.UndoHabit(id, date, v) }
+            }
+            is QuickAddAction.UndoHabit -> viewModelScope.launch { habits.setLog(a.id, a.date, a.value) }
+            QuickAddAction.NewHabit -> {
+                val name = input.value.text.trim()
+                input.value = Input()
+                nav.trySend(QuickAddEvent.NewHabit(name))
+                queue.send(UiEvent.Close)
+            }
         }
     }
 

@@ -20,6 +20,19 @@ import tech.beyondscale.mitra.feature.common.HapticKind
 import tech.beyondscale.mitra.feature.common.UiEvent
 import tech.beyondscale.mitra.testing.FakeTasksRepository
 import tech.beyondscale.mitra.testing.FakeMoneyRepository
+import tech.beyondscale.mitra.testing.FakeHabitsRepository
+import tech.beyondscale.mitra.testing.FakeGoalsRepository
+import tech.beyondscale.mitra.core.AppClock
+import tech.beyondscale.mitra.domain.goals.StatusTone
+import tech.beyondscale.mitra.domain.model.Goal
+import tech.beyondscale.mitra.domain.model.GoalState
+import tech.beyondscale.mitra.domain.model.GoalTerm
+import tech.beyondscale.mitra.domain.model.GoalType
+import tech.beyondscale.mitra.domain.model.Habit
+import tech.beyondscale.mitra.domain.model.ProgressEntry
+import tech.beyondscale.mitra.domain.model.ReviewEvery
+import tech.beyondscale.mitra.feature.habits.logRun
+import tech.beyondscale.mitra.feature.habits.testHabit
 import tech.beyondscale.mitra.domain.model.Category
 import tech.beyondscale.mitra.domain.model.CategoryKind
 import tech.beyondscale.mitra.domain.model.Modules
@@ -38,7 +51,7 @@ class TodayViewModelTest : ViewModelTest() {
     private val clock = FixedClock(Instant.parse("2026-10-13T04:30:00Z"), TimeZone.of("Asia/Kolkata"))
 
     @Test fun greetsByFirstNameInLocalTime() {
-        val vm = TodayViewModel(FakeAuthRepository(SessionState.SignedIn(testUser())), FakeTasksRepository(today = "2026-10-13"), FakeMoneyRepository(), clock)
+        val vm = TodayViewModel(FakeAuthRepository(SessionState.SignedIn(testUser())), FakeTasksRepository(today = "2026-10-13"), FakeMoneyRepository(), FakeHabitsRepository(), FakeGoalsRepository(clock = clock), clock)
         assertEquals("Good morning, Raju", vm.state.value.greeting)
         assertEquals("Tuesday, 13 October 2026 · 10:00 AM", vm.state.value.dateLine)
         assertEquals(listOf("Tasks", "Habits", "Spent today", "Sleep"), vm.state.value.stats.map { it.label })
@@ -47,7 +60,7 @@ class TodayViewModelTest : ViewModelTest() {
     @OptIn(ExperimentalCoroutinesApi::class)
     @Test fun headerRefreshesAsTheClockAdvances() = runTest {
         Dispatchers.setMain(StandardTestDispatcher(testScheduler))
-        val vm = TodayViewModel(FakeAuthRepository(SessionState.SignedIn(testUser())), FakeTasksRepository(today = "2026-10-13"), FakeMoneyRepository(), clock)
+        val vm = TodayViewModel(FakeAuthRepository(SessionState.SignedIn(testUser())), FakeTasksRepository(today = "2026-10-13"), FakeMoneyRepository(), FakeHabitsRepository(), FakeGoalsRepository(clock = clock), clock)
         backgroundScope.launch { vm.state.collect {} }
         runCurrent()
         assertEquals("Good morning, Raju", vm.state.value.greeting)
@@ -63,7 +76,7 @@ class TodayViewModelTest : ViewModelTest() {
     private fun TestScope.vmWith(tasks: List<Task>, settings: Settings = Settings(), money: FakeMoneyRepository = FakeMoneyRepository()): Pair<TodayViewModel, FakeTasksRepository> {
         Dispatchers.setMain(StandardTestDispatcher(testScheduler))
         val repo = FakeTasksRepository(tasks, today = today)
-        val vm = TodayViewModel(FakeAuthRepository(SessionState.SignedIn(testUser(settings = settings))), repo, money, clock)
+        val vm = TodayViewModel(FakeAuthRepository(SessionState.SignedIn(testUser(settings = settings))), repo, money, FakeHabitsRepository(), FakeGoalsRepository(clock = clock), clock)
         backgroundScope.launch { vm.state.collect {} }
         runCurrent()
         return vm to repo
@@ -138,7 +151,7 @@ class TodayViewModelTest : ViewModelTest() {
         val night = FixedClock(Instant.parse("2026-10-31T18:29:00Z"), TimeZone.of("Asia/Kolkata")) // 23:59 IST
         val cat = Category("c1", "Food", "🍛", CategoryKind.Expense, budgetPaise = 3_000_000)
         val money = FakeMoneyRepository(categories = listOf(cat), transactions = listOf(tx("t1", 45_000, "2026-10-31")))
-        val vm = TodayViewModel(FakeAuthRepository(SessionState.SignedIn(testUser())), FakeTasksRepository(today = "2026-10-31"), money, night)
+        val vm = TodayViewModel(FakeAuthRepository(SessionState.SignedIn(testUser())), FakeTasksRepository(today = "2026-10-31"), money, FakeHabitsRepository(), FakeGoalsRepository(clock = night), night)
         backgroundScope.launch { vm.state.collect {} }
         runCurrent()
         assertEquals("1 day left in Oct", vm.state.value.money?.daysLeft)
@@ -154,5 +167,102 @@ class TodayViewModelTest : ViewModelTest() {
     @Test fun moneyHiddenWhenModuleOff() = runTest {
         val (vm, _) = vmWith(emptyList(), Settings(modules = Modules(money = false)))
         assertEquals(null, vm.state.value.money)
+    }
+
+    // ---- Habits and Goals (Phase 4) ----
+
+    private fun TestScope.vmHG(
+        c: AppClock,
+        habits: List<Habit> = emptyList(),
+        goals: List<Goal> = emptyList(),
+        settings: Settings = Settings(),
+    ): Pair<TodayViewModel, FakeHabitsRepository> {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val repo = FakeHabitsRepository(habits)
+        val vm = TodayViewModel(
+            FakeAuthRepository(SessionState.SignedIn(testUser(settings = settings))), FakeTasksRepository(today = "2026-10-14"),
+            FakeMoneyRepository(), repo, FakeGoalsRepository(goals, c), c,
+        )
+        backgroundScope.launch { vm.state.collect {} }
+        runCurrent()
+        return vm to repo
+    }
+
+    // 10:00 IST on Wed 14 Oct (testHabit / logRun's TODAY)
+    private val oct14 = FixedClock(Instant.parse("2026-10-14T04:30:00Z"), TimeZone.of("Asia/Kolkata"))
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test fun habitsStatCountsDueAndDone() = runTest {
+        val (vm, _) = vmHG(
+            oct14,
+            habits = listOf(
+                testHabit("meditate", logs = logRun(12)),
+                testHabit("journal"),
+                testHabit("walk", logs = logRun(5, daysAgoEnd = 2)),
+            ),
+        )
+        val stat = vm.state.value.stats.first { it.label == "Habits" }
+        assertEquals("1/3", stat.value)
+        assertEquals("57% this week", stat.sub)
+        assertEquals(StatTarget.Habits, stat.target)
+        assertEquals(listOf("meditate", "journal", "walk"), vm.state.value.habits?.map { it.id })
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test fun habitCheckUsesLocalDateAfterMidnight() = runTest {
+        val late = FixedClock(Instant.parse("2026-10-31T19:00:00Z"), TimeZone.of("Asia/Kolkata")) // 2026-11-01 00:30 IST
+        val (vm, repo) = vmHG(late, habits = listOf(testHabit("read")))
+        vm.onAction(TodayAction.CheckHabit("read"))
+        runCurrent()
+        assertEquals("log:read:2026-11-01:1", repo.calls.last())
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test fun habitsStatRollsOverAtMidnight() = runTest {
+        val night = FixedClock(Instant.parse("2026-10-31T18:29:00Z"), TimeZone.of("Asia/Kolkata")) // 23:59 IST on 31 Oct
+        val (vm, _) = vmHG(night, habits = listOf(testHabit("read", logs = mapOf("2026-10-31" to 1))))
+        assertEquals("1/1", vm.state.value.stats.first { it.label == "Habits" }.value)
+
+        night.instant = Instant.parse("2026-10-31T18:30:30Z") // 00:00:30 IST on 1 Nov
+        advanceTimeBy(60_002)
+        assertEquals("0/1", vm.state.value.stats.first { it.label == "Habits" }.value)
+    }
+
+    private fun goal(id: String, current: Double, logged: Boolean, nextAction: String = "") = Goal(
+        id = id, name = id, type = GoalType.Numeric, term = GoalTerm.Medium, due = "2026-12-31", startedOn = "2026-01-01",
+        current = current, target = 100.0, unit = "", formula = null, nextAction = nextAction, reviewEvery = ReviewEvery.Monthly,
+        reviewOn = "2026-11-14", state = GoalState.Active, notes = "", createdAt = "", milestones = emptyList(),
+        progressLog = if (logged) listOf(ProgressEntry("2026-10-14", current)) else emptyList(),
+    )
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test fun goalsCardShowsNotOnTrackFirst() = runTest {
+        // ~78% of the year elapsed: 80 logged is on track, 50 logged is behind, 50 never logged is slipping.
+        val (vm, _) = vmHG(
+            oct14,
+            goals = listOf(
+                goal("ontrack", 80.0, logged = true, nextAction = "Transfer ₹8,000"),
+                goal("behind", 50.0, logged = true),
+                goal("slipping", 50.0, logged = false),
+            ),
+        )
+        val rows = vm.state.value.goals!!
+        assertEquals(listOf("behind", "slipping"), rows.map { it.id })
+        assertEquals(listOf("Behind", "Slipping"), rows.map { it.status })
+        assertEquals(listOf(StatusTone.Warning, StatusTone.Danger), rows.map { it.tone })
+        assertEquals("Next: —", rows.first().next)
+        assertEquals(50, rows.first().pct)
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test fun sectionsFollowTodaySectionsOrder() = runTest {
+        val (vm, _) = vmHG(oct14, settings = Settings(todaySections = listOf("goals", "priorities", "habits")))
+        assertEquals(listOf("goals", "priorities", "habits"), vm.state.value.sections)
+        assertEquals(emptyList(), vm.state.value.habits)
+        assertEquals(null, vm.state.value.money)
+
+        val (noHabits, _) = vmHG(oct14, settings = Settings(todaySections = listOf("goals", "activity", "money")))
+        assertEquals(listOf("goals", "money"), noHabits.state.value.sections)
+        assertEquals(null, noHabits.state.value.habits)
     }
 }

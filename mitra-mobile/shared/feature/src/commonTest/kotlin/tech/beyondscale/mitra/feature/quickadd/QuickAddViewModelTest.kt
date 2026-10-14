@@ -16,6 +16,9 @@ import tech.beyondscale.mitra.domain.model.CategoryKind
 import tech.beyondscale.mitra.domain.model.Priority
 import tech.beyondscale.mitra.domain.model.TxKind
 import tech.beyondscale.mitra.testing.FakeMoneyRepository
+import tech.beyondscale.mitra.testing.FakeHabitsRepository
+import tech.beyondscale.mitra.feature.habits.logRun
+import tech.beyondscale.mitra.feature.habits.testHabit
 import tech.beyondscale.mitra.domain.model.Project
 import tech.beyondscale.mitra.feature.common.HapticKind
 import tech.beyondscale.mitra.feature.common.UiEvent
@@ -40,8 +43,13 @@ class QuickAddViewModelTest : ViewModelTest() {
     private val food = Category("c1", "Food & dining", "🍛", CategoryKind.Expense, slug = "food")
     private val acct = Account("a1", "HDFC", "1234", AccountKind.Bank, 100_000_00)
 
-    private fun TestScope.start(repo: FakeTasksRepository, money: FakeMoneyRepository = FakeMoneyRepository(listOf(acct), listOf(food))): Harness {
-        val vm = QuickAddViewModel(repo, money, clock)
+    private fun TestScope.start(
+        repo: FakeTasksRepository,
+        money: FakeMoneyRepository = FakeMoneyRepository(listOf(acct), listOf(food)),
+        habits: FakeHabitsRepository = FakeHabitsRepository(),
+        clock: FixedClock = this@QuickAddViewModelTest.clock,
+    ): Harness {
+        val vm = QuickAddViewModel(repo, money, habits, clock)
         val events = mutableListOf<UiEvent<QuickAddAction>>()
         val d = UnconfinedTestDispatcher(testScheduler)
         backgroundScope.launch(d) { vm.state.collect {} }
@@ -134,7 +142,7 @@ class QuickAddViewModelTest : ViewModelTest() {
     @Test fun saveExpenseUsesDefaultAccountAndLocalDate() = runTest {
         val money = FakeMoneyRepository(listOf(acct), listOf(food))
         val late = FixedClock(Instant.parse("2026-10-31T19:00:00Z"), TimeZone.of("Asia/Kolkata")) // 2026-11-01 00:30 IST
-        val vm = QuickAddViewModel(FakeTasksRepository(), money, late)
+        val vm = QuickAddViewModel(FakeTasksRepository(), money, FakeHabitsRepository(), late)
         val events = mutableListOf<UiEvent<QuickAddAction>>()
         val d = UnconfinedTestDispatcher(testScheduler)
         backgroundScope.launch(d) { vm.state.collect {} }
@@ -182,11 +190,57 @@ class QuickAddViewModelTest : ViewModelTest() {
         val repo = FakeTasksRepository()
         val h = start(repo)
         h.vm.onAction(QuickAddAction.Text("Lunch 200"))
-        h.vm.onAction(QuickAddAction.Type(QuickType.Habit))
+        h.vm.onAction(QuickAddAction.Type(QuickType.Note))
         h.vm.onAction(QuickAddAction.Save)
         runCurrent()
-        assertEquals("Habit check arrives with Habits — add it on the web for now.", h.vm.state.value.notice)
+        assertEquals("Note arrives with Notes — add it on the web for now.", h.vm.state.value.notice)
         assertFalse(h.vm.state.value.canSave)
         assertEquals(emptyList(), repo.calls)
+    }
+
+    // 10:00 IST on Wed 14 Oct (testHabit / logRun's TODAY)
+    private val oct14 = FixedClock(Instant.parse("2026-10-14T04:30:00Z"), TimeZone.of("Asia/Kolkata"))
+
+    @Test fun habitCheckListsDueHabitsFilteredByText() = runTest {
+        val weekend = listOf(false, false, false, false, false, true, true)
+        val habits = FakeHabitsRepository(listOf(testHabit("read"), testHabit("bread", "Bake bread", days = weekend), testHabit("walk")))
+        val h = start(FakeTasksRepository(), habits = habits, clock = oct14)
+        h.vm.onAction(QuickAddAction.Type(QuickType.Habit))
+        h.vm.onAction(QuickAddAction.Text("rea"))
+        runCurrent()
+        assertEquals(listOf("Read"), h.vm.state.value.habitRows.map { it.name })
+        assertNull(h.vm.state.value.notice)
+        assertFalse(h.vm.state.value.canSave)
+
+        h.vm.onAction(QuickAddAction.Text(""))
+        runCurrent()
+        assertEquals(listOf("Read", "Walk"), h.vm.state.value.habitRows.map { it.name })
+    }
+
+    @Test fun checkFromQuickAddLogsTodayAndSnacks() = runTest {
+        val habits = FakeHabitsRepository(listOf(testHabit("read", logs = logRun(3, daysAgoEnd = 1))))
+        val h = start(FakeTasksRepository(), habits = habits, clock = oct14)
+        h.vm.onAction(QuickAddAction.Type(QuickType.Habit))
+        h.vm.onAction(QuickAddAction.CheckHabit("read"))
+        runCurrent()
+        assertEquals("log:read:2026-10-14:1", habits.calls.last())
+        val undo = QuickAddAction.UndoHabit("read", "2026-10-14", null)
+        assertTrue(UiEvent.Snack("Read ✓ · streak 4", undo) in h.events)
+        assertTrue(h.vm.state.value.habitRows.single().done)
+
+        h.vm.onAction(undo)
+        runCurrent()
+        assertEquals("log:read:2026-10-14:null", habits.calls.last())
+    }
+
+    @Test fun newHabitCarriesTypedName() = runTest {
+        val h = start(FakeTasksRepository(), clock = oct14)
+        val nav = mutableListOf<QuickAddEvent>()
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { h.vm.navigation.toList(nav) }
+        h.vm.onAction(QuickAddAction.Type(QuickType.Habit))
+        h.vm.onAction(QuickAddAction.Text("Stretch"))
+        h.vm.onAction(QuickAddAction.NewHabit)
+        runCurrent()
+        assertEquals(listOf<QuickAddEvent>(QuickAddEvent.NewHabit("Stretch")), nav)
     }
 }
