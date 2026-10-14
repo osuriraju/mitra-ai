@@ -67,7 +67,7 @@ fun AmountKeypad(
             Key(".", "Decimal point", onClick = { tick(); onKey('.') })
             Key("0", "0", onClick = { tick(); onKey('0') })
             Key(
-                "⌫", "Delete", onClick = { tick(); onBackspace() },
+                "⌫", "Backspace", onClick = { tick(); onBackspace() },
                 onLongClick = onClear?.let { clear -> { tick(); clear() } },
                 longClickLabel = "Clear amount",
             )

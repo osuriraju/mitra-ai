@@ -2,9 +2,7 @@ package tech.beyondscale.mitra.designsystem.components
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.awaitEachGesture
-import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.foundation.gestures.waitForUpOrCancellation
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -23,7 +21,9 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.input.pointer.positionChange
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
@@ -46,26 +46,25 @@ fun ScrubBars(
     modifier: Modifier = Modifier.height(150.dp),
 ) {
     val c = Mitra.colors
+    val haptics = LocalHapticFeedback.current
     var active by remember { mutableIntStateOf(-1) }
     val max = (values.maxOrNull() ?: 0L).coerceAtLeast(1L)
     val summary = values.indices.joinToString(", ") { "${labels.getOrElse(it) { "" }} ${format(values[it])}" }
     Box(
         modifier.fillMaxWidth()
             .semantics { contentDescription = summary }
+            // Scrub only after a long press so vertical drags still scroll the page.
             .pointerInput(values.size) {
-                awaitEachGesture {
-                    val down = awaitFirstDown()
-                    active = scrubIndex(down.position.x, size.width.toFloat(), values.size)
-                    down.consume()
-                    while (true) {
-                        val ev = awaitPointerEvent()
-                        val p = ev.changes.firstOrNull() ?: break
-                        if (!p.pressed) break
-                        active = scrubIndex(p.position.x, size.width.toFloat(), values.size)
-                        if (p.positionChange() != Offset.Zero) p.consume()
-                    }
-                    active = -1
+                fun move(x: Float) {
+                    val i = scrubIndex(x, size.width.toFloat(), values.size)
+                    if (i != active) { active = i; if (i >= 0) haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove) }
                 }
+                detectDragGesturesAfterLongPress(
+                    onDragStart = { move(it.x) },
+                    onDrag = { change, _ -> change.consume(); move(change.position.x) },
+                    onDragEnd = { active = -1 },
+                    onDragCancel = { active = -1 },
+                )
             },
     ) {
         Canvas(Modifier.fillMaxSize()) {
@@ -89,7 +88,7 @@ fun ScrubBars(
             val label = labels.getOrElse(active) { "" }
             Text(
                 "$label · ${format(values[active])}",
-                Modifier.align(Alignment.TopCenter).background(c.surface2, RoundedCornerShape(MitraDimens.radiusSm)).padding(horizontal = 8.dp, vertical = 4.dp),
+                Modifier.align(Alignment.TopCenter).clearAndSetSemantics { }.background(c.surface2, RoundedCornerShape(MitraDimens.radiusSm)).padding(horizontal = 8.dp, vertical = 4.dp),
                 style = Mitra.type.xs, color = c.text,
             )
         }

@@ -10,7 +10,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import tech.beyondscale.mitra.designsystem.icons.MitraIcons
@@ -29,7 +31,7 @@ fun MonthSwitcher(
         IconButton(onClick = onPrev, modifier = Modifier.size(48.dp)) {
             Icon(MitraIcons.ChevronLeft, contentDescription = "Previous month", tint = c.text)
         }
-        Text(title, Modifier.semantics { heading() }, style = Mitra.type.h3, color = c.text)
+        Text(title, Modifier.semantics { heading(); liveRegion = LiveRegionMode.Polite }, style = Mitra.type.h3, color = c.text)
         IconButton(onClick = onNext, enabled = canNext, modifier = Modifier.size(48.dp)) {
             Icon(MitraIcons.ChevronRight, contentDescription = "Next month", tint = if (canNext) c.text else c.faint)
         }

@@ -17,6 +17,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
+import kotlin.math.roundToInt
 import tech.beyondscale.mitra.designsystem.theme.Mitra
 
 data class DonutSegment(val value: Long, val color: Color, val label: String)
@@ -28,13 +29,20 @@ fun donutSweeps(values: List<Long>): List<Float> {
     return values.map { it.coerceAtLeast(0L).toDouble().div(total).times(360.0).toFloat() }
 }
 
+/** Spoken summary, e.g. "Food 40%, Rent 30%, Other 30%", followed by [centerLabel] when present. */
+fun donutSummary(segments: List<DonutSegment>, centerLabel: String? = null): String {
+    val total = segments.sumOf { it.value.coerceAtLeast(0L) }
+    val parts = if (total <= 0L) emptyList() else segments.map { "${it.label} ${(it.value.coerceAtLeast(0L) * 100.0 / total).roundToInt()}%" }
+    return (parts + listOfNotNull(centerLabel)).joinToString(", ")
+}
+
 @Composable
 fun Donut(segments: List<DonutSegment>, size: Dp, stroke: Dp, centerLabel: String? = null, modifier: Modifier = Modifier) {
     val c = Mitra.colors
     val sweeps = donutSweeps(segments.map { it.value })
-    Box(modifier.size(size), contentAlignment = Alignment.Center) {
-        // Slices are decorative; callers list the breakdown as text beside the chart.
-        Canvas(Modifier.size(size).clearAndSetSemantics { }) {
+    val summary = donutSummary(segments, centerLabel)
+    Box(modifier.size(size).semantics(mergeDescendants = true) { if (summary.isNotEmpty()) contentDescription = summary }, contentAlignment = Alignment.Center) {
+        Canvas(Modifier.size(size)) {
             val w = stroke.toPx()
             val d = this.size.minDimension - w
             val tl = Offset(w / 2f, w / 2f)
@@ -47,7 +55,7 @@ fun Donut(segments: List<DonutSegment>, size: Dp, stroke: Dp, centerLabel: Strin
             }
         }
         if (centerLabel != null) {
-            Text(centerLabel, Modifier.semantics { contentDescription = centerLabel }, style = Mitra.type.num.copy(fontWeight = FontWeight.SemiBold), color = c.text)
+            Text(centerLabel, Modifier.clearAndSetSemantics { }, style = Mitra.type.num.copy(fontWeight = FontWeight.SemiBold), color = c.text)
         }
     }
 }

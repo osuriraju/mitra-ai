@@ -9,6 +9,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -18,7 +19,7 @@ import tech.beyondscale.mitra.designsystem.theme.Mitra
 @Composable
 fun EmojiBox(emoji: String, size: Dp = 36.dp, modifier: Modifier = Modifier) {
     Box(
-        modifier.size(size).clip(RoundedCornerShape(size * 0.29f)).background(Mitra.colors.surface2),
+        modifier.size(size).clearAndSetSemantics { }.clip(RoundedCornerShape(size * 0.29f)).background(Mitra.colors.surface2),
         contentAlignment = Alignment.Center,
     ) {
         Text(emoji, fontSize = (size.value * 0.5f).sp)
