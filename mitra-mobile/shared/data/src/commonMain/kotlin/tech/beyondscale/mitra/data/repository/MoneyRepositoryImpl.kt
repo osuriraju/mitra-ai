@@ -200,6 +200,11 @@ class MoneyRepositoryImpl(
         // An account the server no longer lists (archived on the web) stays while a queued transaction or payment
         // uses it, so a pending transaction never points at an account the device has dropped; a later refresh
         // removes it.
+        // Accounts whose local balance is kept: it must still follow every non-pending transaction the server added,
+        // changed or removed since (edits on the web, and our own writes the server rejected), so those differences
+        // are applied to it below. Accounts new to the device take the server's balance, which already has them.
+        val keptBalances = if (keepBalances) db.accountsQueries.selectIds().executeAsList().toSet() else emptySet()
+        fun move(tx: Transaction, sign: Int) = db.applyEffects(balanceEffects(tx).filter { it.first in keptBalances }, sign)
         val stillUsed = pendingTx.mapNotNull { selectTransaction(it) }.flatMap { listOfNotNull(it.accountId, it.toAccountId) }.toSet()
         db.accountsQueries.selectIds().executeAsList().filter { it !in serverAccounts && it !in stillUsed }.forEach { db.accountsQueries.delete(it) }
         body.accounts.forEachIndexed { i, dto ->
@@ -224,8 +229,18 @@ class MoneyRepositoryImpl(
         // A category (bill) whose DELETE is still queued: the server unlinks its transactions once it lands; do so now.
         val incoming = body.transactions.map { it.toDomain().scrubbed(deleted) }
         val serverTx = incoming.map { it.id }.toSet()
-        inWindow.filter { it !in serverTx && it !in pendingTx }.forEach { db.transactionsQueries.delete(it) }
-        incoming.filter { it.id !in pendingTx }.forEach { db.transactionsQueries.upsert(it.toRow()) }
+        inWindow.filter { it !in serverTx && it !in pendingTx }.forEach { id ->
+            selectTransaction(id)?.let { move(it, -1) }
+            db.transactionsQueries.delete(id)
+        }
+        incoming.filter { it.id !in pendingTx }.forEach { tx ->
+            val old = selectTransaction(tx.id)
+            if (old != tx) {
+                old?.let { move(it, -1) }
+                move(tx, 1)
+            }
+            db.transactionsQueries.upsert(tx.toRow())
+        }
 
         // Recurring (a queued "Mark paid" counts as a pending change to its bill).
         val serverRecurring = body.recurring.map { it.id }.toSet()
@@ -297,11 +312,14 @@ class MoneyRepositoryImpl(
 
     override suspend fun deleteCategory(id: String) {
         write {
-            val c = db.categoriesQueries.selectById(id).executeAsOneOrNull()?.toDomain() ?: return@write
-            db.categoriesQueries.delete(id)
-            // The server archives the transfer category (transfers need it) and keeps every reference; any other
-            // category is deleted and its references become null (FK SET NULL).
-            if (c.slug != TRANSFER_SLUG) {
+            val row = db.categoriesQueries.selectById(id).executeAsOneOrNull() ?: return@write
+            val c = row.toDomain()
+            // The server archives the transfer category (transfers need it) and keeps every reference — so does the
+            // device; any other category is deleted and its references become null (FK SET NULL).
+            if (c.slug == TRANSFER_SLUG) {
+                db.categoriesQueries.upsert(c.copy(archived = true).toRow(row.position))
+            } else {
+                db.categoriesQueries.delete(id)
                 db.transactionsQueries.clearCategory(id)
                 db.recurringQueries.selectAll().executeAsList().map { it.toDomain() }.filter { it.categoryId == id }
                     .forEach { db.recurringQueries.upsert(it.copy(categoryId = null).toRow()) }

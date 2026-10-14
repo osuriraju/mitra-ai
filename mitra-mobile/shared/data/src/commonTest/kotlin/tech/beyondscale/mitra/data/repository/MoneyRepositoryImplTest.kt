@@ -373,6 +373,99 @@ class MoneyRepositoryImplTest {
         e.repo.deleteCategory("c-transfer")
         assertEquals("c-transfer", localTx("t1")!!.categoryId) // the server archives it; its transfers keep pointing at it
         assertEquals(emptyList(), e.repo.categories.first())
+        assertEquals(1L, db.categoriesQueries.selectById("c-transfer").executeAsOne().archived) // archived, like the server
+
+        // A refresh before the DELETE lands (the server already omits nothing yet) keeps the link and the archived row.
+        server.offline = false
+        server.routes["GET /api/money/bootstrap"] = {
+            json(bootstrap(listOf(txJson("t1", "10", kind = "transfer", categoryId = "c-transfer").replace("\"merchant\"", "\"toAccountId\":\"$bank\",\"merchant\"")), categories = listOf(categoryJson("transfer", "🔁"))))
+        }
+        assertIs<Outcome.Ok<Unit>>(e.repo.refresh())
+        assertEquals("c-transfer", localTx("t1")!!.categoryId)
+        assertEquals(1L, db.categoriesQueries.selectById("c-transfer").executeAsOne().archived)
+    }
+
+    /* ---------- rejected writes ---------- */
+
+    @Test fun rejectedCreateWithOtherWritesQueuedRestoresTheBalance() = runTest {
+        val e = env()
+        seedAccount(100000)
+        server.offline = true
+        val bad = e.repo.addTransaction(expense(30000))
+        val other = e.repo.addTransaction(expense(5000))
+        assertEquals(65000L, balance())
+        server.offline = false
+        server.routes["POST /api/money/transactions"] = { req ->
+            if (bad.id in req.body.toByteArray().decodeToString()) json(errorJson("VALIDATION", "Bad"), HttpStatusCode.BadRequest)
+            else throw Exception("connection reset") // the other write stays queued
+        }
+        server.routes["GET /api/money/bootstrap"] = { json(bootstrap(emptyList(), listOf(accountJson(balance = "1000")))) }
+        assertEquals(SyncEngine.Result.Offline, e.engine.drain(scheduleRetryOnFailure = false))
+        assertEquals(listOf(other.id), txIds())
+        assertEquals(95000L, balance()) // 1000 − 50 (still queued): the rejected 300 is given back
+    }
+
+    @Test fun rejectedPayWithOtherWritesQueuedRestoresTheBalance() = runTest {
+        val e = env()
+        seedAccount(100000)
+        seedRent()
+        server.offline = true
+        val payTx = assertIs<PayResult.Paid>(e.repo.payRecurring(rentId)).transaction
+        val other = e.repo.addTransaction(expense(5000))
+        assertEquals(100000L - 1500000L - 5000L, balance())
+        server.offline = false
+        server.routes["POST /api/money/recurring/$rentId/pay"] = { json(errorJson("NO_ACCOUNT", "Add an account first"), HttpStatusCode.BadRequest) }
+        server.routes["POST /api/money/transactions"] = { throw Exception("connection reset") }
+        server.routes["GET /api/money/bootstrap"] = {
+            json(bootstrap(emptyList(), listOf(accountJson(balance = "1000"))).replace(
+                "\"recurring\":[]",
+                """"recurring":[{"id":"$rentId","name":"Rent","emoji":"🏠","amount":15000,"day":5,"method":"UPI","kind":"bill","reminder":true}]""",
+            ))
+        }
+        assertEquals(SyncEngine.Result.Offline, e.engine.drain(scheduleRetryOnFailure = false))
+        assertEquals(listOf(other.id), txIds())
+        assertNull(localTx(payTx.id))
+        assertNull(localRent().lastPaidOn)
+        assertEquals(95000L, balance())
+        assertIs<PayResult.Paid>(e.repo.payRecurring(rentId)) // can be paid again, deducted once
+        assertEquals(95000L - 1500000L, balance())
+    }
+
+    @Test fun rejectedEditAndDeleteWithOtherWritesQueuedFollowTheServer() = runTest {
+        val e = env()
+        seedAccount(100000)
+        seedTx("t1", 10000) // already on the server, already in the balance
+        seedTx("t2", 20000)
+        server.offline = true
+        e.repo.updateTransaction("t1", expense(40000))
+        e.repo.deleteTransaction("t2")
+        val other = e.repo.addTransaction(expense(5000))
+        assertEquals(100000L - 30000L + 20000L - 5000L, balance())
+        server.offline = false
+        server.routes["PATCH /api/money/transactions/t1"] = { json(errorJson("VALIDATION", "Bad"), HttpStatusCode.BadRequest) }
+        server.routes["DELETE /api/money/transactions/t2"] = { json(errorJson("FORBIDDEN", "No"), HttpStatusCode.Forbidden) }
+        server.routes["POST /api/money/transactions"] = { throw Exception("connection reset") }
+        server.routes["GET /api/money/bootstrap"] = { json(bootstrap(listOf(txJson("t1", "100", categoryId = null), txJson("t2", "200", categoryId = null)), listOf(accountJson(balance = "1000")))) }
+        assertEquals(SyncEngine.Result.Offline, e.engine.drain(scheduleRetryOnFailure = false))
+        assertEquals(10000L, localTx("t1")!!.amountPaise)
+        assertNotNull(localTx("t2"))
+        assertEquals(listOf(other.id, "t1", "t2").sorted(), txIds())
+        assertEquals(95000L, balance()) // the server's 1000 plus the queued −50
+    }
+
+    @Test fun refreshWhilePendingFollowsTransactionsChangedOnTheWeb() = runTest {
+        val e = env()
+        seedAccount(100000)
+        seedTx("t1", 10000)
+        server.offline = true
+        e.repo.addTransaction(expense(5000))
+        server.offline = false
+        // On the web: t1 became 150 and a new 20 expense was added (server balance 1000 − 50 − 20 = 930 before ours).
+        server.routes["GET /api/money/bootstrap"] = {
+            json(bootstrap(listOf(txJson("t1", "150", categoryId = null), txJson("w1", "20", categoryId = null)), listOf(accountJson(balance = "930"))))
+        }
+        assertIs<Outcome.Ok<Unit>>(e.repo.refresh())
+        assertEquals(93000L - 5000L, balance())
     }
 
     /* ---------- recurring ---------- */
