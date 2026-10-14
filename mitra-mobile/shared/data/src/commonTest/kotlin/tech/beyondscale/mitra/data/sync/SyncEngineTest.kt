@@ -163,7 +163,7 @@ class SyncEngineTest {
 
     @Test fun unparseableBodyIsRejectedAndQueueContinues() = runTest {
         server.routes["PATCH /api/b"] = { json("{}") }
-        db.outboxQueries.insert("bad", "t", "PATCH", "a", "{bad", null, 0L)
+        db.outboxQueries.insert("bad", "t", "PATCH", "a", "{bad", null, 0L, null)
         enqueue("b")
         assertEquals(SyncEngine.Result.Drained, engine().drain())
         assertEquals(1, rejections.size)

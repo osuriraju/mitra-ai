@@ -1,0 +1,32 @@
+-- v1 (Phase 1) → v2 (Phase 2 Tasks)
+ALTER TABLE outbox ADD COLUMN entityId TEXT;
+
+CREATE TABLE tasks (
+  id TEXT NOT NULL PRIMARY KEY,
+  title TEXT NOT NULL,
+  projectId TEXT,
+  goalId TEXT,
+  habitId TEXT,
+  due TEXT,
+  time TEXT,
+  estMin INTEGER,
+  pri TEXT,
+  status TEXT NOT NULL,
+  done INTEGER NOT NULL,
+  completedAt TEXT,
+  parentId TEXT,
+  notes TEXT NOT NULL,
+  recurring TEXT,
+  amountPaise INTEGER,
+  someday INTEGER NOT NULL,
+  source TEXT NOT NULL,
+  createdAt TEXT NOT NULL
+);
+
+CREATE TABLE projects (
+  id TEXT NOT NULL PRIMARY KEY,
+  name TEXT NOT NULL,
+  emoji TEXT NOT NULL,
+  goalId TEXT,
+  createdAt TEXT NOT NULL
+);

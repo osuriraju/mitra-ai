@@ -14,8 +14,9 @@ class OutboxWriter(private val db: MitraDb, private val json: Json, private val 
      * the server merges settings/patches shallowly too, so the result is identical.
      * Use a key only for independent last-write-wins resources; never for writes whose order or
      * count matters (creates, deletes, actions).
+     * [entityId] marks which record the row writes, so refreshes can keep that record's local copy until the row is acknowledged.
      */
-    fun enqueue(entity: String, method: String, path: String, body: JsonObject?, coalesceKey: String? = null) {
+    fun enqueue(entity: String, method: String, path: String, body: JsonObject?, coalesceKey: String? = null, entityId: String? = null) {
         if (coalesceKey != null) {
             val queued = db.outboxQueries.pendingByCoalesceKey(coalesceKey).executeAsOneOrNull()
             if (queued != null) {
@@ -28,7 +29,7 @@ class OutboxWriter(private val db: MitraDb, private val json: Json, private val 
         db.outboxQueries.insert(
             id = newId(), entity = entity, method = method, path = path,
             body = body?.let { json.encodeToString(JsonObject.serializer(), it) },
-            coalesceKey = coalesceKey, createdAt = clock.now().toEpochMilliseconds(),
+            coalesceKey = coalesceKey, createdAt = clock.now().toEpochMilliseconds(), entityId = entityId,
         )
     }
 }

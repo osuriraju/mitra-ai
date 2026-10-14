@@ -9,11 +9,12 @@ CREATE TABLE outbox (
   coalesceKey TEXT,
   inFlight INTEGER NOT NULL DEFAULT 0,
   attempts INTEGER NOT NULL DEFAULT 0,
-  createdAt INTEGER NOT NULL
+  createdAt INTEGER NOT NULL,
+  entityId TEXT
 );
 
 insert:
-INSERT INTO outbox(id, entity, method, path, body, coalesceKey, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?);
+INSERT INTO outbox(id, entity, method, path, body, coalesceKey, createdAt, entityId) VALUES (?, ?, ?, ?, ?, ?, ?, ?);
 
 selectNext:
 SELECT * FROM outbox ORDER BY seq LIMIT 1;
@@ -24,6 +25,16 @@ SELECT * FROM outbox ORDER BY seq;
 -- Only rows not currently being sent can absorb a newer patch.
 pendingByCoalesceKey:
 SELECT * FROM outbox WHERE coalesceKey = ? AND inFlight = 0 ORDER BY seq DESC LIMIT 1;
+
+-- Ids of entities with a queued or in-flight write: a server refresh must not overwrite or delete them.
+pendingEntityIds:
+SELECT DISTINCT ifnull(entityId, '') FROM outbox WHERE entity = ? AND entityId IS NOT NULL;
+
+lastSeq:
+SELECT seq FROM outbox ORDER BY seq DESC LIMIT 1;
+
+exists:
+SELECT COUNT(*) FROM outbox WHERE id = ?;
 
 updateBody:
 UPDATE outbox SET body = ? WHERE id = ?;

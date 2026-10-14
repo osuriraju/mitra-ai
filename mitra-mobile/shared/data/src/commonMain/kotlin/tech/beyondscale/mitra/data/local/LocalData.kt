@@ -7,5 +7,7 @@ class LocalData(private val db: MitraDb) {
     fun clearUserData() = db.transaction {
         db.outboxQueries.deleteAll()
         db.userQueries.deleteAll()
+        db.tasksQueries.deleteAll()
+        db.projectsQueries.deleteAll()
     }
 }

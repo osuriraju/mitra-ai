@@ -1,0 +1,26 @@
+-- Active (non-archived) projects, as returned by the server.
+CREATE TABLE projects (
+  id TEXT NOT NULL PRIMARY KEY,
+  name TEXT NOT NULL,
+  emoji TEXT NOT NULL,
+  goalId TEXT,
+  createdAt TEXT NOT NULL
+);
+
+selectAll:
+SELECT * FROM projects ORDER BY createdAt, id;
+
+selectById:
+SELECT * FROM projects WHERE id = ?;
+
+upsert:
+INSERT OR REPLACE INTO projects VALUES ?;
+
+delete:
+DELETE FROM projects WHERE id = ?;
+
+selectIds:
+SELECT id FROM projects;
+
+deleteAll:
+DELETE FROM projects;

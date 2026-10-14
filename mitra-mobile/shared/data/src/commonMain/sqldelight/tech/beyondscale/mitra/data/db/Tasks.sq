@@ -1,0 +1,45 @@
+-- Tasks as the server shapes them (mitra-backend/src/tasks/mapper.ts); amount kept in paise, booleans as 0/1.
+CREATE TABLE tasks (
+  id TEXT NOT NULL PRIMARY KEY,
+  title TEXT NOT NULL,
+  projectId TEXT,
+  goalId TEXT,
+  habitId TEXT,
+  due TEXT,
+  time TEXT,
+  estMin INTEGER,
+  pri TEXT,
+  status TEXT NOT NULL,
+  done INTEGER NOT NULL,
+  completedAt TEXT,
+  parentId TEXT,
+  notes TEXT NOT NULL,
+  recurring TEXT,
+  amountPaise INTEGER,
+  someday INTEGER NOT NULL,
+  source TEXT NOT NULL,
+  createdAt TEXT NOT NULL
+);
+
+-- Newest first, like the server's list and the web store.
+selectAll:
+SELECT * FROM tasks ORDER BY createdAt DESC, id;
+
+selectById:
+SELECT * FROM tasks WHERE id = ?;
+
+upsert:
+INSERT OR REPLACE INTO tasks VALUES ?;
+
+delete:
+DELETE FROM tasks WHERE id = ?;
+
+-- Deleting a project sends its tasks back to the Inbox (server FK is SET NULL).
+clearProject:
+UPDATE tasks SET projectId = NULL WHERE projectId = ?;
+
+selectIds:
+SELECT id FROM tasks;
+
+deleteAll:
+DELETE FROM tasks;

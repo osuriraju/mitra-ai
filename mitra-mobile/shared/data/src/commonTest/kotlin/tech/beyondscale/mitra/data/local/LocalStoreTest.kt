@@ -4,6 +4,8 @@ import app.cash.turbine.test
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runTest
 import tech.beyondscale.mitra.data.db.MitraDb
+import tech.beyondscale.mitra.data.db.Projects
+import tech.beyondscale.mitra.data.db.Tasks
 import tech.beyondscale.mitra.data.testDriver
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -27,12 +29,16 @@ class LocalStoreTest {
         val prefs = PrefStore(db, UnconfinedTestDispatcher())
         prefs.put(PrefKeys.THEME, "Light")
         db.userQueries.upsert("u1", "{}")
-        db.outboxQueries.insert("o1", "user-settings", "PATCH", "users/me/settings", "{}", null, 0)
+        db.outboxQueries.insert("o1", "user-settings", "PATCH", "users/me/settings", "{}", null, 0, null)
+        db.tasksQueries.upsert(Tasks("t1", "Write", null, null, null, null, null, null, null, "todo", 0, null, null, "", null, null, 0, "user", ""))
+        db.projectsQueries.upsert(Projects("p1", "Work", "💼", null, ""))
 
         LocalData(db).clearUserData()
 
         assertNull(db.userQueries.selectCurrent().executeAsOneOrNull())
         assertEquals(0L, db.outboxQueries.count().executeAsOne())
+        assertEquals(emptyList(), db.tasksQueries.selectIds().executeAsList())
+        assertEquals(emptyList(), db.projectsQueries.selectIds().executeAsList())
         assertEquals("Light", prefs.get(PrefKeys.THEME))
     }
 }
