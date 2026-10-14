@@ -14,8 +14,10 @@ describe('amount schema', () => {
     expect(r.success ? '' : r.error.issues[0].message).toBe('Amounts can have at most 2 decimals');
   });
   it('accepts every 2-decimal value up to 5000.00', () => {
-    for (let p = 1; p <= 500000; p++) expect(amount.safeParse(p / 100).success).toBe(true);
-  });
+    const rejected: number[] = [];
+    for (let p = 1; p <= 500000; p++) if (!amount.safeParse(p / 100).success) rejected.push(p);
+    expect(rejected).toEqual([]);
+  }, 30_000);
 });
 
 describe('toMinor', () => {
