@@ -34,4 +34,21 @@ class OutboxWriterTest {
         writer.enqueue("b", "DELETE", "y", null)
         assertEquals(listOf("a", "b"), db.outboxQueries.selectAll().executeAsList().map { it.entity })
     }
+
+    @Test fun doesNotCoalesceAcrossLaterRows() {
+        // Patch task, create a project, patch the task again: folding the 2nd patch into the 1st would send it
+        // before the project exists on the server.
+        writer.enqueue("task", "PATCH", "tasks/t1", buildJsonObject { put("title", "A") }, "task:t1", "t1")
+        writer.enqueue("project", "POST", "projects", buildJsonObject { put("id", "p1") }, entityId = "p1")
+        writer.enqueue("task", "PATCH", "tasks/t1", buildJsonObject { put("projectId", "p1") }, "task:t1", "t1")
+        val rows = db.outboxQueries.selectAll().executeAsList()
+        assertEquals(listOf("tasks/t1", "projects", "tasks/t1"), rows.map { it.path })
+        assertEquals("""{"projectId":"p1"}""", rows.last().body)
+    }
+
+    @Test fun recordsEntityId() {
+        writer.enqueue("task", "DELETE", "tasks/t9", null, entityId = "t9")
+        assertEquals("t9", db.outboxQueries.selectAll().executeAsList().single().entityId)
+        assertEquals(listOf("t9"), db.outboxQueries.pendingEntityIds("task").executeAsList())
+    }
 }

@@ -11,12 +11,16 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.IO
 import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.receiveAsFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -32,10 +36,10 @@ import tech.beyondscale.mitra.domain.repository.SyncController
 /** Platform hook to try again later (Android: WorkManager job that waits for a network). */
 fun interface SyncScheduler { fun scheduleRetry() }
 
-/** Per-entity reaction to a sent outbox row. */
+/** Per-entity reaction to a sent outbox row. Called only if the row was still queued when the answer came. */
 interface SyncHandler {
     suspend fun onSuccess(response: JsonElement?)
-    /** The server refused the write (4xx); the local copy should be restored from the server. */
+    /** The server refused the write (4xx, or a repeated 500); the local copy should be restored from the server. */
     suspend fun onRejected(error: AppError)
 }
 
@@ -55,11 +59,21 @@ class SyncEngine(
     private val mutex = Mutex()
     private val requests = MutableSharedFlow<Unit>(extraBufferCapacity = 1, onBufferOverflow = BufferOverflow.DROP_OLDEST)
     private val _status = MutableStateFlow<SyncStatus>(SyncStatus.Idle)
-    private val _messages = MutableSharedFlow<String>(extraBufferCapacity = 8)
+    // A Channel, not a SharedFlow: a rejection while no screen is collecting (app in background, Login showing)
+    // must still reach the user once the shell is back.
+    private val _messages = Channel<String>(capacity = 16, onBufferOverflow = BufferOverflow.DROP_OLDEST)
+    private val _acks = MutableStateFlow(0L)
+    private val _drained = MutableSharedFlow<Unit>(extraBufferCapacity = 1, onBufferOverflow = BufferOverflow.DROP_OLDEST)
 
     override val status: StateFlow<SyncStatus> = _status.asStateFlow()
-    override val messages: Flow<String> = _messages
+    override val messages: Flow<String> = _messages.receiveAsFlow()
     override val pendingCount: Flow<Long> = db.outboxQueries.count().asFlow().mapToOne(io)
+
+    /** Number of rows that have left the outbox after a server answer; bumped *before* the row is removed. */
+    val acknowledged: StateFlow<Long> = _acks.asStateFlow()
+
+    /** Emits when a drain that sent at least one row has emptied the queue (modules may refresh). */
+    val drained: Flow<Unit> = _drained.asSharedFlow()
 
     init {
         scope.launch(start = CoroutineStart.UNDISPATCHED) {
@@ -82,6 +96,7 @@ class SyncEngine(
 
     private suspend fun drainLocked(scheduleRetryOnFailure: Boolean): Result {
         var result: Result? = null
+        var sent = 0
         while (result == null) {
             // Claim atomically so a concurrent enqueue can't merge into a row after we read its body.
             val claimed = withContext(io) {
@@ -94,27 +109,34 @@ class SyncEngine(
             val pending = claimed.second
             if (entry == null) {
                 _status.value = SyncStatus.Idle
+                if (sent > 0) _drained.tryEmit(Unit)
                 result = Result.Drained
                 continue
             }
             _status.value = SyncStatus.Syncing(pending)
+            val attempt = entry.attempts + 1
 
             val body = try {
                 entry.body?.let { api.json.parseToJsonElement(it) }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
+                sent++
                 reject(entry.id, entry.entity, AppError.Unknown(e))
                 continue
             }
             when (val r = api.send(HttpMethod.parse(entry.method), entry.path, body)) {
                 is Outcome.Ok -> {
-                    withContext(io) { db.outboxQueries.delete(entry.id) }
-                    safely { handlers[entry.entity]?.onSuccess(r.value) }
+                    sent++
+                    if (dequeue(entry.id)) safely { handlers[entry.entity]?.onSuccess(r.value) }
                 }
                 is Outcome.Err -> {
                     val e = r.error
-                    val transient = e is AppError.Offline || (e is AppError.Server && (e.status >= 500 || e.status == 429))
+                    // A plain 500 from this API is an unhandled exception (e.g. a create resent after its first
+                    // response was lost hits the existing id). It will never succeed; don't block the queue on it.
+                    val poisoned = e is AppError.Server && e.status == 500 && attempt >= POISON_ATTEMPTS
+                    val transient = !poisoned &&
+                        (e is AppError.Offline || (e is AppError.Server && (e.status >= 500 || e.status == 429)))
                     if (transient || e is AppError.Unauthenticated) {
                         withContext(io) { db.outboxQueries.clearInFlight(entry.id) }
                         if (transient && scheduleRetryOnFailure) scheduler.scheduleRetry()
@@ -129,6 +151,7 @@ class SyncEngine(
                             else -> Result.Retry
                         }
                     } else {
+                        sent++
                         reject(entry.id, entry.entity, e)
                     }
                 }
@@ -137,14 +160,31 @@ class SyncEngine(
         return result
     }
 
+    /**
+     * Removes a sent row; false if it was already gone (logout/account switch cleared the outbox while the request
+     * was on the wire) — then its response belongs to a session that no longer exists and must be ignored.
+     */
+    private suspend fun dequeue(id: String): Boolean {
+        _acks.update { it + 1 }
+        return withContext(io) {
+            db.transactionWithResult {
+                val queued = db.outboxQueries.exists(id).executeAsOne() > 0
+                db.outboxQueries.delete(id)
+                queued
+            }
+        }
+    }
+
     private suspend fun reject(id: String, entity: String, error: AppError) {
-        withContext(io) { db.outboxQueries.delete(id) }
+        if (!dequeue(id)) return
         safely { handlers[entity]?.onRejected(error) }
-        _messages.tryEmit("Couldn't save · ${error.message}")
+        _messages.trySend("Couldn't save · ${error.message}")
     }
 
     /** A misbehaving handler must not break the queue; the row outcome already applied stands. */
     private suspend fun safely(block: suspend () -> Unit) {
         try { block() } catch (e: CancellationException) { throw e } catch (_: Exception) { }
     }
+
+    private companion object { const val POISON_ATTEMPTS = 3 }
 }

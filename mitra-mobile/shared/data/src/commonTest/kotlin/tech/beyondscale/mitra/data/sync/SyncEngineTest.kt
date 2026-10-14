@@ -5,6 +5,8 @@ import io.ktor.client.engine.mock.toByteArray
 import io.ktor.http.HttpStatusCode
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.advanceTimeBy
@@ -169,5 +171,62 @@ class SyncEngineTest {
         assertEquals(1, rejections.size)
         assertEquals(listOf("PATCH /api/b"), server.log)
         assertEquals(0, pending().size)
+    }
+
+    @Test fun messagesAreBufferedUntilSomeoneCollects() = runTest {
+        server.routes["PATCH /api/a"] = { json(errorJson("NOT_FOUND", "Task not found"), HttpStatusCode.NotFound) }
+        enqueue("a")
+        val engine = engine()
+        assertEquals(SyncEngine.Result.Drained, engine.drain()) // nobody is collecting yet
+        assertEquals("Couldn't save · Task not found", engine.messages.first())
+    }
+
+    @Test fun responseForARowClearedMidFlightIsIgnored() = runTest {
+        server.routes["PATCH /api/a"] = {
+            db.outboxQueries.deleteAll() // logout while the request is on the wire
+            json("""{"id":"x"}""")
+        }
+        enqueue("a")
+        assertEquals(SyncEngine.Result.Drained, engine().drain())
+        assertEquals(0, successes.size)
+    }
+
+    @Test fun internalErrorRowIsDroppedAfterThreeAttempts() = runTest {
+        server.routes["POST /api/a"] = { json(errorJson("INTERNAL", "Something went wrong"), HttpStatusCode.InternalServerError) }
+        server.routes["PATCH /api/b"] = { json("{}") }
+        writer.enqueue("t", "POST", "a", buildJsonObject { put("id", "dup") }, entityId = "dup")
+        enqueue("b")
+        val engine = engine()
+        assertEquals(SyncEngine.Result.Retry, engine.drain())
+        assertEquals(SyncEngine.Result.Retry, engine.drain())
+        assertEquals(SyncEngine.Result.Drained, engine.drain()) // third 500: dropped, queue continues
+        assertEquals(listOf<AppError>(AppError.Server(500, "INTERNAL", "Something went wrong")), rejections)
+        assertEquals(listOf("POST /api/a", "POST /api/a", "POST /api/a", "PATCH /api/b"), server.log)
+        assertEquals(0, pending().size)
+    }
+
+    @Test fun gatewayErrorsAreNeverDropped() = runTest {
+        server.routes["PATCH /api/a"] = { json(errorJson("ERROR", "Bad gateway"), HttpStatusCode.BadGateway) }
+        enqueue("a")
+        val engine = engine()
+        repeat(5) { assertEquals(SyncEngine.Result.Retry, engine.drain()) }
+        assertEquals(1, pending().size)
+        assertEquals(0, rejections.size)
+    }
+
+    @Test fun ackCounterAndDrainedSignal() = runTest {
+        server.routes["PATCH /api/a"] = { json("{}") }
+        server.routes["PATCH /api/b"] = { json(errorJson("NOT_FOUND", "gone"), HttpStatusCode.NotFound) }
+        enqueue("a"); enqueue("b")
+        val engine = engine()
+        var drainedSignals = 0
+        backgroundScope.launch { engine.drained.collect { drainedSignals++ } }
+        runCurrent()
+        assertEquals(0L, engine.acknowledged.value)
+        engine.drain(); runCurrent()
+        assertEquals(2L, engine.acknowledged.value)
+        assertEquals(1, drainedSignals)
+        engine.drain(); runCurrent() // nothing sent → no signal
+        assertEquals(1, drainedSignals)
     }
 }
