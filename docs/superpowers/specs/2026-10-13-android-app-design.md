@@ -170,7 +170,7 @@ Both widgets read through domain use cases on the local DB (offline-capable). Th
 - **Medium (4×2):** hero “₹1,240 / day” (same formula as web Today: `(totalBudget − spentThisMonth) / daysLeftIncludingToday`, floored at 0); line “₹18,400 of ₹30,000 · 61%” with budget bar (accent < 90 %, warning ≥ 90 %, danger > 100 %); next bill/renewal “🏠 Rent · in 3 days · ₹15,000”; buttons ＋ Expense (Quick Add → Expense, keypad focused) and body tap → Money.
 - **Small (2×2):** safe-to-spend + ＋ Expense.
 - **No budget set:** shows “Spent this month ₹18,400” and a “Set budget” tap target.
-- **Privacy:** per-widget “Hide amounts” option (configuration activity) renders ₹•••• until the app is opened.
+- **Privacy:** per-widget “Hide amounts” option (configuration activity); when on, that widget never shows amounts (₹••••) nor the budget bar/tone.
 
 Both follow the app theme (dark/light) and use the Noir accent.
 

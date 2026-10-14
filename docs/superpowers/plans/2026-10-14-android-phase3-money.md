@@ -643,3 +643,17 @@ Run against the local backend (`curl -s http://localhost:4000/api/health`, `./gr
 10. Today: Spent today stat and Money card (safe to spend, left this month, next bill, near/over line) equal the web's Today; after 00:00 IST they roll to the new day/month without restarting.
 11. Add "Mitra · Money" widget: shows safe-to-spend / budget bar / next bill; ＋ Expense opens Quick Add on Expense; with no budgets shows "Spent this month" + Set budget; reconfigure → Hide amounts → only ₹•••• visible; sign out → "Sign in to Mitra" and no amounts; next morning it shows the new day without opening the app.
 12. Remove the Tasks widget while the Money widget stays: the Money widget still refreshes at midnight (alarm kept).
+13. Money widget fit at 2×2 and 4×2: the safe-to-spend hero does not clip, including at the largest font scale; the 2×2 ＋ button stays tappable.
+14. Widget configuration flow on Android < 12 (config activity opens on placement; cancel removes the widget) and ≥ 12 (reconfigure from long-press); Save survives rotation.
+15. Hide amounts on one widget only: that widget shows ₹•••• with no budget bar or tone, and stays hidden after opening the app; a second widget without it shows amounts.
+16. Widget after sign-out ("Sign in to Mitra", no amounts) and after a 401 session expiry (amounts hidden until signed in again; note: the session-ended flag is not persisted across process death — check what shows after force-stop).
+17. Account switch (sign out → sign in as another user) with the widget placed: no frame of the previous user's amounts.
+18. Midnight rollover: safe-to-spend/day and the month bar update after 00:00 IST without opening the app (also on the 1st of a month).
+19. ＋ Expense from the widget opens Quick Add on Expense (also when the app was killed).
+20. Launch links via `adb shell am start … -d`: `mitra://money`, `mitra://quick-add/expense`, `mitra://money/budgets`; unknown `mitra://money/x` just opens the app.
+21. Quick Add expense parser on device: `₹240 food lunch`, `lunch 240`, `rs 1,250.50 groceries`; amount and category chips can be dismissed.
+22. TxFormSheet keypad: live ₹ formatting while typing (grouping, two decimals max), backspace/clear, IME does not cover the keypad.
+23. Swipe-delete a transaction → Undo restores it (also after leaving and returning to the list before the snackbar ends).
+24. Mark paid offline then sync: exactly one paid transaction on the web; refresh (pull or foreground) while the Mark paid is still queued does not drop the local transaction.
+25. Delete the transfer category on the web/app: existing transfers keep working (category archived locally, not deleted).
+26. Edit a transaction whose account is archived on the web: picker shows "Choose account" (known cosmetic) and saving without changing it keeps the original account.
