@@ -7,6 +7,7 @@ import androidx.glance.appwidget.action.ActionCallback
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.get
 import tech.beyondscale.mitra.domain.repository.TasksRepository
+import tech.beyondscale.mitra.domain.tasks.complete
 
 /**
  * A widget row's checkbox: completes the task locally (DB + outbox, so it reaches the server even if the process
@@ -15,7 +16,7 @@ import tech.beyondscale.mitra.domain.repository.TasksRepository
 class ToggleTaskAction : ActionCallback, KoinComponent {
     override suspend fun onAction(context: Context, glanceId: GlanceId, parameters: ActionParameters) {
         val id = parameters[TaskId] ?: return
-        get<TasksRepository>().setDone(id, true)
+        get<TasksRepository>().complete(id)
         TasksWidget().update(context, glanceId)
     }
 

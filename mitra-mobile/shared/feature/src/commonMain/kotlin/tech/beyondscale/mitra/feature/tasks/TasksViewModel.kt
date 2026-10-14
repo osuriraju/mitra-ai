@@ -39,6 +39,11 @@ import tech.beyondscale.mitra.domain.tasks.taskCounts
 import tech.beyondscale.mitra.domain.tasks.todaySorted
 import tech.beyondscale.mitra.domain.tasks.upcomingLabel
 import tech.beyondscale.mitra.feature.common.EventQueue
+import tech.beyondscale.mitra.feature.common.announce
+import tech.beyondscale.mitra.domain.tasks.Completion
+import tech.beyondscale.mitra.domain.tasks.complete
+import tech.beyondscale.mitra.domain.tasks.toggleCompletion
+import tech.beyondscale.mitra.domain.tasks.undoCompletion
 import tech.beyondscale.mitra.feature.common.HapticKind
 import tech.beyondscale.mitra.feature.common.UiEvent
 
@@ -123,11 +128,10 @@ class TasksViewModel(private val tasks: TasksRepository, private val clock: AppC
             is TasksAction.SelectTab -> local.update { it.copy(tab = a.tab, selection = emptySet()) }
             is TasksAction.SetFilters -> local.update { it.copy(filters = a.filters) }
             TasksAction.ToggleShowDone -> local.update { it.copy(showDone = !it.showDone) }
-            is TasksAction.Toggle -> launch { toggle(a.id) }
-            is TasksAction.UndoComplete -> launch {
-                tasks.setDone(a.id, false)
-                a.spawnedId?.let { tasks.delete(it) }
+            is TasksAction.Toggle -> launch {
+                queue.announce(tasks.toggleCompletion(a.id)) { TasksAction.UndoComplete(it.id, it.spawnedId) }
             }
+            is TasksAction.UndoComplete -> launch { tasks.undoCompletion(a.id, a.spawnedId) }
             is TasksAction.Reschedule -> launch {
                 val t = find(a.id) ?: return@launch
                 tasks.update(t.id, listOf(TaskChange.Due(addDays(clock.today(), 1))))
@@ -221,7 +225,7 @@ class TasksViewModel(private val tasks: TasksRepository, private val clock: AppC
         val open = ids.filter { id -> all.firstOrNull { it.id == id }?.done == false }
         if (open.isEmpty()) return
         queue.send(UiEvent.Haptic(HapticKind.Confirm))
-        val spawned = open.mapNotNull { tasks.setDone(it, true) }
+        val spawned = open.mapNotNull { (tasks.complete(it) as? Completion.Completed)?.spawnedId }
         queue.send(UiEvent.Snack("${count(open.size)} completed", TasksAction.UndoBulkComplete(open, spawned)))
     }
 
@@ -242,17 +246,6 @@ class TasksViewModel(private val tasks: TasksRepository, private val clock: AppC
     }
 
     private suspend fun find(id: String): Task? = tasks.tasks.first().firstOrNull { it.id == id }
-
-    private suspend fun toggle(id: String) {
-        val t = find(id) ?: return
-        if (t.done) {
-            tasks.setDone(id, false)
-            return
-        }
-        queue.send(UiEvent.Haptic(HapticKind.Confirm))
-        val spawned = tasks.setDone(id, true)
-        queue.send(UiEvent.Snack("Completed · ${t.title}", TasksAction.UndoComplete(id, spawned)))
-    }
 
     private suspend fun moveOverdue() {
         val today = clock.today()

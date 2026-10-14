@@ -4,7 +4,6 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
@@ -49,7 +48,9 @@ import tech.beyondscale.mitra.domain.tasks.openToday
 import tech.beyondscale.mitra.domain.tasks.plannedMin
 import tech.beyondscale.mitra.domain.tasks.priorityTasks
 import tech.beyondscale.mitra.feature.common.EventQueue
-import tech.beyondscale.mitra.feature.common.HapticKind
+import tech.beyondscale.mitra.feature.common.announce
+import tech.beyondscale.mitra.domain.tasks.toggleCompletion
+import tech.beyondscale.mitra.domain.tasks.undoCompletion
 import tech.beyondscale.mitra.feature.common.UiEvent
 import tech.beyondscale.mitra.feature.tasks.TaskRowUi
 import tech.beyondscale.mitra.feature.tasks.taskRowUi
@@ -122,24 +123,12 @@ class TodayViewModel(
 
     fun onAction(a: TodayAction) {
         when (a) {
-            is TodayAction.Toggle -> viewModelScope.launch { toggle(a.id) }
-            is TodayAction.UndoComplete -> viewModelScope.launch {
-                tasks.setDone(a.id, false)
-                a.spawned?.let { tasks.delete(it) }
+            is TodayAction.Toggle -> viewModelScope.launch {
+                queue.announce(tasks.toggleCompletion(a.id)) { TodayAction.UndoComplete(it.id, it.spawnedId) }
             }
+            is TodayAction.UndoComplete -> viewModelScope.launch { tasks.undoCompletion(a.id, a.spawned) }
             TodayAction.AddExpense, TodayAction.OpenBudgets -> Unit // handled by the shell (EventEffect → navigation)
         }
-    }
-
-    private suspend fun toggle(id: String) {
-        val t = tasks.tasks.first().firstOrNull { it.id == id } ?: return
-        if (t.done) {
-            tasks.setDone(id, false)
-            return
-        }
-        queue.send(UiEvent.Haptic(HapticKind.Confirm))
-        val spawned = tasks.setDone(id, true)
-        queue.send(UiEvent.Snack("Completed · ${t.title}", TodayAction.UndoComplete(id, spawned)))
     }
 
     /** Emits now and then at every wall-clock minute boundary so the header never goes stale. */

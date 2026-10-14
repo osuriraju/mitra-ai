@@ -11,7 +11,8 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.receiveAsFlow
 import tech.beyondscale.mitra.designsystem.components.LocalSnackbar
 
-enum class HapticKind { Confirm, Reject, LongPress }
+/** [Milestone] is the strongest available (a habit streak milestone). */
+enum class HapticKind { Confirm, Reject, LongPress, Milestone }
 
 /** One-off effects from a ViewModel. [A] is the action an Undo snackbar replays. */
 sealed interface UiEvent<out A> {
@@ -46,7 +47,7 @@ fun <A> EventEffect(events: Flow<UiEvent<A>>, onAction: (A) -> Unit, onClose: ()
                     when (e.kind) {
                         HapticKind.Confirm -> HapticFeedbackType.Confirm
                         HapticKind.Reject -> HapticFeedbackType.Reject
-                        HapticKind.LongPress -> HapticFeedbackType.LongPress
+                        HapticKind.LongPress, HapticKind.Milestone -> HapticFeedbackType.LongPress
                     },
                 )
                 UiEvent.Close -> close()

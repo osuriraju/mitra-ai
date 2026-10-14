@@ -39,7 +39,10 @@ import tech.beyondscale.mitra.domain.tasks.children
 import tech.beyondscale.mitra.domain.tasks.isOverdue
 import tech.beyondscale.mitra.domain.tasks.subProgress
 import tech.beyondscale.mitra.feature.common.EventQueue
-import tech.beyondscale.mitra.feature.common.HapticKind
+import tech.beyondscale.mitra.feature.common.announce
+import tech.beyondscale.mitra.domain.tasks.Completion
+import tech.beyondscale.mitra.domain.tasks.toggleCompletion
+import tech.beyondscale.mitra.domain.tasks.undoCompletion
 import tech.beyondscale.mitra.feature.common.UiEvent
 import kotlin.time.Instant
 
@@ -132,10 +135,7 @@ class TaskDetailViewModel(
         when (a) {
             TaskDetailAction.ToggleDone -> launch { toggle(id, self = true) }
             is TaskDetailAction.ToggleChild -> launch { toggle(a.id, self = false) }
-            is TaskDetailAction.UndoComplete -> launch {
-                tasks.setDone(a.id, false)
-                a.spawned?.let { tasks.delete(it) }
-            }
+            is TaskDetailAction.UndoComplete -> launch { tasks.undoCompletion(a.id, a.spawned) }
             is TaskDetailAction.SetStatus -> launch { tasks.update(id, listOf(TaskChange.Status(a.s))) }
             is TaskDetailAction.Reschedule -> launch {
                 tasks.update(id, listOf(TaskChange.Due(a.due)))
@@ -229,15 +229,9 @@ class TaskDetailViewModel(
     private fun sameNotes(stored: String?, draft: String) = (stored ?: "").trim() == draft.trim()
 
     private suspend fun toggle(taskId: String, self: Boolean) {
-        val t = find(taskId) ?: return
-        if (t.done) {
-            tasks.setDone(taskId, false)
-            if (self) queue.send(UiEvent.Snack("Marked as open", TaskDetailAction.SetStatus(TaskStatus.Done)))
-            return
-        }
-        queue.send(UiEvent.Haptic(HapticKind.Confirm))
-        val spawned = tasks.setDone(taskId, true)
-        queue.send(UiEvent.Snack("Completed · ${t.title}", TaskDetailAction.UndoComplete(taskId, spawned)))
+        val c = tasks.toggleCompletion(taskId)
+        if (c is Completion.Reopened && self) queue.send(UiEvent.Snack("Marked as open", TaskDetailAction.SetStatus(TaskStatus.Done)))
+        queue.announce(c) { TaskDetailAction.UndoComplete(it.id, it.spawnedId) }
     }
 
     private fun build(all: List<Task>, projects: List<Project>, today: String, draft: String?): TaskDetailUiState {

@@ -20,7 +20,9 @@ import tech.beyondscale.mitra.domain.model.TaskChange
 import tech.beyondscale.mitra.domain.repository.TasksRepository
 import tech.beyondscale.mitra.domain.tasks.projectStats
 import tech.beyondscale.mitra.feature.common.EventQueue
-import tech.beyondscale.mitra.feature.common.HapticKind
+import tech.beyondscale.mitra.feature.common.announce
+import tech.beyondscale.mitra.domain.tasks.toggleCompletion
+import tech.beyondscale.mitra.domain.tasks.undoCompletion
 import tech.beyondscale.mitra.feature.common.UiEvent
 
 data class ProjectDetailUiState(
@@ -61,11 +63,10 @@ class ProjectDetailViewModel(private val id: String, private val tasks: TasksRep
 
     fun onAction(a: ProjectDetailAction) {
         when (a) {
-            is ProjectDetailAction.Toggle -> launch { toggle(a.id) }
-            is ProjectDetailAction.UndoComplete -> launch {
-                tasks.setDone(a.id, false)
-                a.spawned?.let { tasks.delete(it) }
+            is ProjectDetailAction.Toggle -> launch {
+                queue.announce(tasks.toggleCompletion(a.id)) { ProjectDetailAction.UndoComplete(it.id, it.spawnedId) }
             }
+            is ProjectDetailAction.UndoComplete -> launch { tasks.undoCompletion(a.id, a.spawned) }
             is ProjectDetailAction.Reschedule -> launch {
                 val t = find(a.id) ?: return@launch
                 tasks.update(t.id, listOf(TaskChange.Due(addDays(clock.today(), 1))))
@@ -98,17 +99,6 @@ class ProjectDetailViewModel(private val id: String, private val tasks: TasksRep
     }
 
     private suspend fun find(taskId: String): Task? = tasks.tasks.first().firstOrNull { it.id == taskId }
-
-    private suspend fun toggle(taskId: String) {
-        val t = find(taskId) ?: return
-        if (t.done) {
-            tasks.setDone(taskId, false)
-            return
-        }
-        queue.send(UiEvent.Haptic(HapticKind.Confirm))
-        val spawned = tasks.setDone(taskId, true)
-        queue.send(UiEvent.Snack("Completed · ${t.title}", ProjectDetailAction.UndoComplete(taskId, spawned)))
-    }
 
     private fun build(all: List<Task>, projects: List<Project>, today: String, deleting: Boolean): ProjectDetailUiState {
         val p = projects.firstOrNull { it.id == id }

@@ -26,6 +26,7 @@ import tech.beyondscale.mitra.domain.repository.AuthRepository
 import tech.beyondscale.mitra.domain.repository.TasksRepository
 import tech.beyondscale.mitra.domain.tasks.focusQueue
 import tech.beyondscale.mitra.feature.common.EventQueue
+import tech.beyondscale.mitra.domain.tasks.complete
 import tech.beyondscale.mitra.feature.common.HapticKind
 import tech.beyondscale.mitra.feature.common.UiEvent
 import kotlin.math.roundToInt
@@ -194,7 +195,7 @@ class FocusViewModel(
         val last = idx + 1 >= inp.queue.size
         viewModelScope.launch {
             try {
-                tasks.setDone(cur.id, true)
+                tasks.complete(cur.id)
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {
