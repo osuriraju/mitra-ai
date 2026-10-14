@@ -88,7 +88,7 @@ private fun QuickAddContent(state: QuickAddUiState, onAction: (QuickAddAction) -
         )
         if (state.notice != null) {
             Text(state.notice, style = Mitra.type.body, color = c.muted)
-        } else {
+        } else if (state.dueLabel != null || state.priLabel != null || state.projectLabel != null) {
             FlowRow(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
                 state.dueLabel?.let {
                     MitraChip("Due · $it", icon = MitraIcons.Calendar, selected = true, onRemove = { onAction(QuickAddAction.ClearDue) })

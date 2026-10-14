@@ -98,15 +98,29 @@ class QuickAddViewModel(private val tasks: TasksRepository, private val clock: A
 
     private fun save() {
         val i = input.value
-        if (i.type != QuickType.Task) return
+        if (i.type != QuickType.Task || saving) return
+        saving = true
         viewModelScope.launch {
+            try {
+                create(i)
+            } finally {
+                saving = false
+            }
+        }
+    }
+
+    /** Set synchronously on Save so a double tap (or IME Done + Add) can't launch a second create. */
+    private var saving = false
+
+    private suspend fun create(i: Input) {
+        run {
             val today = clock.today()
             val projects: List<Project> = tasks.projects.first()
             val p: ParsedTask = QuickAddParser.parse(i.text, today, projects, i.ignore)
             if (p.title.isBlank()) {
                 input.update { it.copy(error = "Give the task a title") }
                 queue.send(UiEvent.Haptic(HapticKind.Reject))
-                return@launch
+                return
             }
             val t = tasks.create(TaskDraft(p.title, projectId = p.project?.id, due = p.due, pri = p.pri))
             val text = "Added · ${t.title}" + (p.due?.let { " · ${fmtDay(it, today)}" } ?: "")

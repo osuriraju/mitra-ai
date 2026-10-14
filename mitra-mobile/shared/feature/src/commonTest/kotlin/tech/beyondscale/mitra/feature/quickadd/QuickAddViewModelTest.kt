@@ -90,6 +90,16 @@ class QuickAddViewModelTest : ViewModelTest() {
         assertEquals("p1", created.projectId)
     }
 
+    @Test fun doubleSaveCreatesOnce() = runTest {
+        val repo = FakeTasksRepository(projects = listOf(work))
+        val h = start(repo)
+        h.vm.onAction(QuickAddAction.Text(text))
+        h.vm.onAction(QuickAddAction.Save)
+        h.vm.onAction(QuickAddAction.Save)
+        runCurrent()
+        assertEquals(listOf("create:Call John"), repo.calls)
+    }
+
     @Test fun blankTitleIsRejected() = runTest {
         val repo = FakeTasksRepository(projects = listOf(work))
         val h = start(repo)
