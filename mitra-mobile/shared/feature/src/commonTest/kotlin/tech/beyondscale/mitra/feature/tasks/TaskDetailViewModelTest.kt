@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.ViewModelStore
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -25,6 +26,7 @@ import tech.beyondscale.mitra.designsystem.components.ChipTone
 import tech.beyondscale.mitra.domain.model.Priority
 import tech.beyondscale.mitra.domain.model.Project
 import tech.beyondscale.mitra.domain.model.Task
+import tech.beyondscale.mitra.domain.model.TaskChange
 import tech.beyondscale.mitra.domain.model.TaskStatus
 import tech.beyondscale.mitra.domain.repository.TasksRepository
 import tech.beyondscale.mitra.domain.tasks.SubProgress
@@ -195,6 +197,96 @@ class TaskDetailViewModelTest : ViewModelTest() {
         repo.catchUp()
         runCurrent()
         assertEquals("edited elsewhere", h.vm.state.value.notes)
+    }
+
+    @Test fun aWriteInFlightIsNotLostWhenTheScreenGoesAway() = runTest {
+        val inner = FakeTasksRepository(listOf(task))
+        val repo = GatedRepository(inner)
+        val store = ViewModelStore()
+        val vm = ViewModelProvider.create(store, viewModelFactory { initializer { TaskDetailViewModel("t1", repo, clock, appScope()) } })[TaskDetailViewModel::class]
+        start(repo, vm = vm)
+        vm.onAction(TaskDetailAction.Notes("a"))
+        advanceTimeBy(601)
+        runCurrent()
+        assertEquals(emptyList(), inner.calls) // "a" is suspended inside update
+        vm.onAction(TaskDetailAction.Notes("ab"))
+        vm.flushNow()
+        store.clear()
+        repo.gate.complete(Unit)
+        runCurrent()
+        assertEquals(listOf("update:t1:Notes(value=a)", "update:t1:Notes(value=ab)"), inner.calls)
+    }
+
+    @Test fun aFailedWriteIsRetriedOnTheNextFlush() = runTest {
+        val inner = FakeTasksRepository(listOf(task))
+        val repo = GatedRepository(inner).apply { failNext = true; gate.complete(Unit) }
+        val h = start(repo)
+        h.vm.onAction(TaskDetailAction.Notes("abc"))
+        h.vm.flushNow()
+        runCurrent()
+        assertEquals(emptyList(), inner.calls)
+        h.vm.flushNow()
+        runCurrent()
+        assertEquals(listOf("update:t1:Notes(value=abc)"), inner.calls)
+    }
+
+    @Test fun draftClearsWhenTheStoreTrims() = runTest {
+        val inner = FakeTasksRepository(listOf(task))
+        val h = start(TrimmingRepository(inner))
+        h.vm.onAction(TaskDetailAction.Notes("abc  "))
+        advanceTimeBy(601)
+        runCurrent()
+        assertEquals("abc", h.vm.state.value.notes)
+        assertDraftCleared(inner, h)
+    }
+
+    @Test fun blankDraftClearsWhenTheStoreKeepsItEmpty() = runTest {
+        val inner = FakeTasksRepository(listOf(task))
+        val h = start(TrimmingRepository(inner))
+        h.vm.onAction(TaskDetailAction.Notes("   "))
+        advanceTimeBy(601)
+        runCurrent()
+        assertEquals(listOf("update:t1:Notes(value=)"), inner.calls)
+        assertEquals("", h.vm.state.value.notes)
+        assertDraftCleared(inner, h)
+    }
+
+    @Test fun draftClearsWhenTheUserRevertsToTheStoredText() = runTest {
+        val inner = FakeTasksRepository(listOf(task))
+        val h = start(inner)
+        h.vm.onAction(TaskDetailAction.Notes("Draftx"))
+        advanceTimeBy(200)
+        h.vm.onAction(TaskDetailAction.Notes("Draft"))
+        advanceTimeBy(601)
+        runCurrent()
+        assertEquals("Draft", h.vm.state.value.notes)
+        assertDraftCleared(inner, h)
+    }
+
+    private fun TestScope.assertDraftCleared(inner: FakeTasksRepository, h: Harness) {
+        inner.taskFlow.value = inner.taskFlow.value.map { it.copy(notes = "edited elsewhere") }
+        runCurrent()
+        assertEquals("edited elsewhere", h.vm.state.value.notes)
+    }
+
+    /** Suspends the first notes write until [gate] completes; [failNext] makes the next write throw. */
+    private class GatedRepository(private val inner: FakeTasksRepository) : TasksRepository by inner {
+        val gate = CompletableDeferred<Unit>()
+        var failNext = false
+        override suspend fun update(id: String, changes: List<TaskChange>) {
+            gate.await()
+            if (failNext) {
+                failNext = false
+                error("disk full")
+            }
+            inner.update(id, changes)
+        }
+    }
+
+    /** Stores notes trimmed, as a server might. */
+    private class TrimmingRepository(private val inner: FakeTasksRepository) : TasksRepository by inner {
+        override suspend fun update(id: String, changes: List<TaskChange>) =
+            inner.update(id, changes.map { if (it is TaskChange.Notes) TaskChange.Notes(it.value.trim()) else it })
     }
 
     /** A repository whose task flow only reflects writes when [catchUp] is called (like a slow DB query re-run). */

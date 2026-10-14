@@ -2,6 +2,8 @@ package tech.beyondscale.mitra.feature.tasks
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
@@ -10,12 +12,12 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.toLocalDateTime
 import tech.beyondscale.mitra.core.AppClock
@@ -87,11 +89,20 @@ class TaskDetailViewModel(
     private val clock: AppClock,
     private val appScope: ApplicationScope,
 ) : ViewModel() {
-    /** What the user typed; shown instead of the stored notes until the database reports the same text. */
+    /* Notes: the field shows a local draft; writes run on the app scope (they survive the screen), one at a time,
+       always saving the newest draft. All of this state is confined to the main thread. */
+    /** What the user typed; shown instead of the stored notes until the store has caught up. */
     private val notesDraft = MutableStateFlow<String?>(null)
-    /** The last text handed to the repository, so a flush on stop/clear does not write it twice. */
+    /** The last text the repository accepted, so a flush on stop/clear does not write it twice. */
     private var savedNotes: String? = null
+    /** The debounce delay only; cancelling it never cancels a write that has started. */
     private var notesJob: Job? = null
+    private val notesLock = Mutex()
+    private var writesInFlight = 0
+    /** The stored notes from the latest emission of the task. */
+    private var storedNotes: String? = null
+    /** A finished write whose text the store has not echoed yet; the next emission drops the draft. */
+    private var awaitingEcho: String? = null
 
     private val queue = EventQueue<TaskDetailAction>()
     val events: Flow<UiEvent<TaskDetailAction>> = queue.events
@@ -101,10 +112,15 @@ class TaskDetailViewModel(
     val deleted: Flow<List<Task>> = deletedChannel.receiveAsFlow()
 
     init {
-        // Drop the draft only once the stored notes have caught up, so the field never flickers back to stale text.
+        // Raw emissions (no distinctUntilChanged): an echo of an unchanged value still counts as the store catching up.
         viewModelScope.launch {
-            tasks.tasks.map { all -> all.firstOrNull { it.id == id }?.notes }.distinctUntilChanged().collect { stored ->
-                if (stored != null) notesDraft.compareAndSet(stored, null)
+            tasks.tasks.collect { all ->
+                storedNotes = all.firstOrNull { it.id == id }?.notes
+                val draft = notesDraft.value
+                if (draft != null && !notesPending() && (sameNotes(storedNotes, draft) || draft == awaitingEcho)) {
+                    notesDraft.compareAndSet(draft, null)
+                }
+                awaitingEcho = null
             }
         }
     }
@@ -163,16 +179,13 @@ class TaskDetailViewModel(
         }
     }
 
-    /** Saves a pending notes draft now, on the app scope (the screen is stopping or going away). */
+    /** Saves a pending notes draft now (the screen is stopping or going away). */
     fun flushNow() {
         notesJob?.cancel()
-        val text = notesDraft.value ?: return
-        if (text == savedNotes) return
-        savedNotes = text
-        appScope.scope.launch { tasks.update(id, listOf(TaskChange.Notes(text))) }
+        if (notesDraft.value != null) writeNotes()
     }
 
-    // viewModelScope is already cancelled here, so the debounce job is dead; the app scope still runs.
+    // viewModelScope is already cancelled here; the write runs on the app scope.
     override fun onCleared() = flushNow()
 
     private fun launch(block: suspend () -> Unit) {
@@ -181,12 +194,39 @@ class TaskDetailViewModel(
 
     private suspend fun find(taskId: String): Task? = tasks.tasks.first().firstOrNull { it.id == taskId }
 
-    private suspend fun writeNotes() {
-        val text = notesDraft.value ?: return
-        if (text == savedNotes) return
-        savedNotes = text
-        tasks.update(id, listOf(TaskChange.Notes(text)))
+    /** Queues a write of whatever the draft is when its turn comes; writes never overlap or reorder. */
+    private fun writeNotes() {
+        writesInFlight++
+        appScope.scope.launch(Dispatchers.Main.immediate) {
+            var written: String? = null
+            try {
+                notesLock.withLock {
+                    val text = notesDraft.value ?: return@withLock
+                    if (text == savedNotes) return@withLock
+                    tasks.update(id, listOf(TaskChange.Notes(text)))
+                    savedNotes = text
+                    written = text
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                // Left unsaved: the next keystroke, stop or clear retries.
+            } finally {
+                writesInFlight--
+            }
+            written?.let(::afterWrite)
+        }
     }
+
+    private fun afterWrite(text: String) {
+        if (notesPending() || notesDraft.value != text) return
+        if (sameNotes(storedNotes, text)) notesDraft.compareAndSet(text, null) else awaitingEcho = text
+    }
+
+    private fun notesPending() = writesInFlight > 0 || notesJob?.isActive == true
+
+    /** The store may trim, or keep empty notes as null. */
+    private fun sameNotes(stored: String?, draft: String) = (stored ?: "").trim() == draft.trim()
 
     private suspend fun toggle(taskId: String, self: Boolean) {
         val t = find(taskId) ?: return
