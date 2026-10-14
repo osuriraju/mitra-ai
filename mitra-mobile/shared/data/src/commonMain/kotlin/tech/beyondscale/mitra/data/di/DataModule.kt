@@ -55,7 +55,7 @@ fun dataModule(baseUrl: String): Module = module {
     // Eager: it registers the user-settings sync handler, which must exist before the first drain.
     single<SettingsRepository>(createdAtStart = true) { SettingsRepositoryImpl(get(), get(), get(), get(), get(), get(), get()) }
     // Eager: registers the task/project sync handlers, which must exist before the first drain.
-    single<TasksRepository>(createdAtStart = true) { TasksRepositoryImpl(get(), get(), get(), get(), get(), get()) }
+    single<TasksRepository>(createdAtStart = true) { TasksRepositoryImpl(get(), get(), get(), get(), get(), get(), get<AppScope>().scope) }
     single<PreferencesRepository> { PreferencesRepositoryImpl(get()) }
     // Eager: it must see the first SignedIn and every drain from app start.
     single<ModuleRefresher>(createdAtStart = true) {

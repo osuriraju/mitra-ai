@@ -4,6 +4,7 @@ import app.cash.sqldelight.coroutines.asFlow
 import app.cash.sqldelight.coroutines.mapToList
 import io.ktor.http.HttpMethod
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
 import kotlinx.coroutines.flow.Flow
@@ -24,6 +25,7 @@ import tech.beyondscale.mitra.core.today
 import tech.beyondscale.mitra.data.db.MitraDb
 import tech.beyondscale.mitra.data.local.PrefKeys
 import tech.beyondscale.mitra.data.local.PrefStore
+import tech.beyondscale.mitra.data.local.shareForRepository
 import tech.beyondscale.mitra.data.local.toDomain
 import tech.beyondscale.mitra.data.local.toRow
 import tech.beyondscale.mitra.data.remote.ApiClient
@@ -51,6 +53,7 @@ class TasksRepositoryImpl(
     private val outbox: OutboxWriter,
     private val engine: SyncEngine,
     private val clock: AppClock,
+    scope: CoroutineScope,
     private val io: CoroutineDispatcher = Dispatchers.IO,
 ) : TasksRepository {
     /**
@@ -61,9 +64,9 @@ class TasksRepositoryImpl(
     private val writes = MutableStateFlow(0L)
 
     override val tasks: Flow<List<Task>> =
-        db.tasksQueries.selectAll().asFlow().mapToList(io).map { rows -> rows.map { it.toDomain() } }
+        db.tasksQueries.selectAll().asFlow().mapToList(io).map { rows -> rows.map { it.toDomain() } }.shareForRepository(scope)
     override val projects: Flow<List<Project>> =
-        db.projectsQueries.selectAll().asFlow().mapToList(io).map { rows -> rows.map { it.toDomain() } }
+        db.projectsQueries.selectAll().asFlow().mapToList(io).map { rows -> rows.map { it.toDomain() } }.shareForRepository(scope)
 
     init {
         engine.register(TASK, object : SyncHandler {

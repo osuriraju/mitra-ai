@@ -56,7 +56,7 @@ class TasksRepositoryImplTest {
         val engine = SyncEngine(api, db, {}, backgroundScope, io, debounceMs = 60_000)
         val prefs = PrefStore(db, io)
         prefs.put(PrefKeys.LAST_USER_ID, "u1")
-        return Env(TasksRepositoryImpl(api, db, prefs, writer, engine, clock, io), engine, prefs)
+        return Env(TasksRepositoryImpl(api, db, prefs, writer, engine, clock, backgroundScope, io), engine, prefs)
     }
 
     private fun q(v: String?) = v?.let { "\"$it\"" } ?: "null"
