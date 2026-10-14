@@ -7,7 +7,9 @@ import org.koin.android.ext.android.get
 import org.koin.android.ext.koin.androidContext
 import org.koin.core.context.startKoin
 import org.koin.dsl.module
+import tech.beyondscale.mitra.android.widget.WidgetUpdater
 import tech.beyondscale.mitra.app.appModules
+import tech.beyondscale.mitra.data.di.AppScope
 import tech.beyondscale.mitra.data.platform.androidDataModule
 import tech.beyondscale.mitra.data.sync.PeriodicSync
 import tech.beyondscale.mitra.data.sync.SyncScheduler
@@ -30,6 +32,8 @@ class MitraApplication : Application() {
                     appModules(BuildConfig.API_URL),
             )
         }
+        // Home-screen widget: redraw on data / session / theme changes and at local midnight.
+        WidgetUpdater(this, get(), get(), get(), get(), get<AppScope>().scope).start()
         // Network back → flush queued changes right away.
         getSystemService(ConnectivityManager::class.java).registerDefaultNetworkCallback(object : ConnectivityManager.NetworkCallback() {
             override fun onAvailable(network: Network) { get<SyncController>().requestSync() }

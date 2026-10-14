@@ -77,5 +77,6 @@ dependencies {
     implementation(project(":shared:app"))
     implementation(libs.activity.compose)
     implementation(libs.work)
+    implementation(libs.glance.appwidget)
     implementation(libs.koin.android)
 }

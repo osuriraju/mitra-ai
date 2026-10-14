@@ -15,7 +15,10 @@ import kotlinx.coroutines.IO
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -62,6 +65,8 @@ class AuthRepositoryImpl(
             else -> SessionState.Unknown
         }
     }.stateIn(scope, SharingStarted.Eagerly, SessionState.Unknown)
+
+    override val hasLocalAccount: Flow<Boolean> = cache.observe().map { it != null }.distinctUntilChanged()
 
     init {
         // Session gone server-side: back to Login, but keep local data + queued changes for the same user.

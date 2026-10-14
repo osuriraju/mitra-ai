@@ -150,6 +150,17 @@ class AuthRepositoryImplTest {
         assertTrue(cookies.get(Url(TEST_BASE)).isEmpty())
     }
 
+    @Test fun hasLocalAccountFollowsCachedUser() = runTest {
+        server.routes["POST /api/auth/login"] = { json(userJson("u1")) }
+        server.routes["POST /api/auth/logout"] = { json("""{"ok":true}""") }
+        val repo = repo()
+        assertEquals(false, repo.hasLocalAccount.first())
+        repo.login("raju", "pw"); runCurrent()
+        assertEquals(true, repo.hasLocalAccount.first())
+        repo.logout(); runCurrent()
+        assertEquals(false, repo.hasLocalAccount.first())
+    }
+
     @Test fun forgotPasswordPostsEmail() = runTest {
         server.routes["POST /api/auth/forgot-password"] = { json("""{"ok":true}""") }
         assertEquals(Outcome.Ok(Unit), repo().forgotPassword("raju@example.com"))

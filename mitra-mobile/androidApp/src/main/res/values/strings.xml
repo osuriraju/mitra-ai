@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="tasks_widget_label">Mitra · Today</string>
+    <string name="tasks_widget_description">Today\'s tasks — tick them off from the home screen</string>
+    <string name="tasks_widget_header">Today · %1$d/%2$d done</string>
+    <string name="tasks_widget_left">%1$d left</string>
+    <string name="tasks_widget_more">+%1$d more</string>
+    <string name="tasks_widget_all_clear">All clear for today ✓</string>
+    <string name="tasks_widget_sign_in">Sign in to Mitra</string>
+    <string name="tasks_widget_add">Add task</string>
+    <string name="tasks_widget_complete">Complete %1$s</string>
+    <string name="tasks_widget_open">Open %1$s</string>
+</resources>
