@@ -38,9 +38,13 @@ data class TaskFormState(
     val error: String? = null,
 )
 
+data class ParentOption(val id: String, val title: String)
+
 data class TaskEditorUiState(
     val form: TaskFormState = TaskFormState(),
     val projects: List<Project> = emptyList(),
+    /** "Subtask of" choices: open top-level tasks, never the edited task or its own subtasks (web `TaskForm`). */
+    val parentOptions: List<ParentOption> = emptyList(),
     val today: String = "",
     val heading: String = "New task",
 )
@@ -54,9 +58,11 @@ sealed interface TaskEditorAction {
     data class Due(val d: String?) : TaskEditorAction
     data class Time(val t: String?) : TaskEditorAction
     data class Pri(val p: Priority?) : TaskEditorAction
-    /** Digits only, like the web's `replace(/\D/g, '')`. */
+    /** Digits only, like the web's `replace(/\D/g, '')`, at most 4 digits. */
     data class Est(val v: String) : TaskEditorAction
     data class Recurring(val r: String?) : TaskEditorAction
+    /** "Subtask of"; null makes it a top-level task. */
+    data class Parent(val id: String?) : TaskEditorAction
     data class Notes(val v: String) : TaskEditorAction
     data object Save : TaskEditorAction
     /** Undo for "Task added". */
@@ -76,8 +82,8 @@ class TaskEditorViewModel(private val tasks: TasksRepository, private val clock:
     private val queue = EventQueue<TaskEditorAction>()
     val events: Flow<UiEvent<TaskEditorAction>> = queue.events
 
-    val state: StateFlow<TaskEditorUiState> = combine(form, tasks.projects, clock.dayFlow()) { f, projects, today ->
-        TaskEditorUiState(f, projects, today, heading(f))
+    val state: StateFlow<TaskEditorUiState> = combine(form, tasks.tasks, tasks.projects, clock.dayFlow()) { f, all, projects, today ->
+        TaskEditorUiState(f, projects, parentOptions(all, f), today, heading(f))
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), TaskEditorUiState())
 
     fun onAction(a: TaskEditorAction) {
@@ -93,8 +99,9 @@ class TaskEditorViewModel(private val tasks: TasksRepository, private val clock:
             is TaskEditorAction.Due -> form.update { it.copy(due = a.d) }
             is TaskEditorAction.Time -> form.update { it.copy(time = a.t) }
             is TaskEditorAction.Pri -> form.update { it.copy(pri = a.p) }
-            is TaskEditorAction.Est -> form.update { it.copy(est = a.v.filter(Char::isDigit)) }
+            is TaskEditorAction.Est -> form.update { it.copy(est = a.v.filter(Char::isDigit).take(EST_MAX_DIGITS)) }
             is TaskEditorAction.Recurring -> form.update { it.copy(recurring = a.r) }
+            is TaskEditorAction.Parent -> form.update { it.copy(parentId = a.id) }
             is TaskEditorAction.Notes -> form.update { it.copy(notes = a.v) }
             TaskEditorAction.Save -> save()
             is TaskEditorAction.DeleteCreated -> viewModelScope.launch { tasks.delete(a.id) }
@@ -163,9 +170,30 @@ class TaskEditorViewModel(private val tasks: TasksRepository, private val clock:
         }
     }
 
+    private fun parentOptions(all: List<Task>, f: TaskFormState): List<ParentOption> {
+        val excluded = f.editId?.let { descendantsAndSelf(all, it) } ?: emptySet()
+        return all.filter { ((it.parentId == null && !it.done) || it.id == f.parentId) && it.id !in excluded }
+            .map { ParentOption(it.id, it.title) }
+    }
+
+    private fun descendantsAndSelf(all: List<Task>, rootId: String): Set<String> {
+        val byParent = all.groupBy { it.parentId }
+        val out = mutableSetOf<String>()
+        val stack = ArrayDeque(listOf(rootId))
+        while (stack.isNotEmpty()) {
+            val next = stack.removeLast()
+            if (out.add(next)) byParent[next]?.forEach { stack.addLast(it.id) }
+        }
+        return out
+    }
+
     private fun heading(f: TaskFormState) = when {
         f.editId != null -> "Edit task"
         f.parentId != null -> "New subtask"
         else -> "New task"
+    }
+
+    private companion object {
+        const val EST_MAX_DIGITS = 4
     }
 }

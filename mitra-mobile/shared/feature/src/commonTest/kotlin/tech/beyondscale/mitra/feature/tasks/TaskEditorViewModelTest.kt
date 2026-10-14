@@ -120,6 +120,49 @@ class TaskEditorViewModelTest : ViewModelTest() {
         assertEquals(listOf("restore:t1"), repo.calls)
     }
 
+    @Test fun estimateKeepsAtMostFourDigits() = runTest {
+        val h = start(FakeTasksRepository())
+        h.vm.onAction(TaskEditorAction.Open(TaskDraft("")))
+        h.vm.onAction(TaskEditorAction.Est("12a345"))
+        assertEquals("1234", h.vm.state.value.form.est)
+    }
+
+    @Test fun parentOptionsExcludeSelfDescendantsAndDoneTasks() = runTest {
+        val child = Task("c1", "Outline", parentId = "t1")
+        val grandchild = Task("g1", "Intro", parentId = "c1")
+        val other = Task("o1", "Plan trip")
+        val done = Task("d1", "Old", done = true)
+        val repo = FakeTasksRepository(listOf(t1, child, grandchild, other, done))
+        val h = start(repo)
+        h.vm.onAction(TaskEditorAction.Open(TaskDraft("")))
+        assertEquals(listOf(ParentOption("t1", "Write report"), ParentOption("o1", "Plan trip")), h.vm.state.value.parentOptions)
+        h.vm.onAction(TaskEditorAction.Edit("t1"))
+        runCurrent()
+        assertEquals(listOf(ParentOption("o1", "Plan trip")), h.vm.state.value.parentOptions)
+        // A subtask can keep (and see) its current parent.
+        h.vm.onAction(TaskEditorAction.Edit("c1"))
+        runCurrent()
+        assertEquals(listOf(ParentOption("t1", "Write report"), ParentOption("o1", "Plan trip")), h.vm.state.value.parentOptions)
+    }
+
+    @Test fun parentChangeIsSent() = runTest {
+        val child = Task("c1", "Outline", parentId = "t1")
+        val repo = FakeTasksRepository(listOf(t1, child, Task("o1", "Plan trip")))
+        val h = start(repo)
+        h.vm.onAction(TaskEditorAction.Edit("c1"))
+        runCurrent()
+        h.vm.onAction(TaskEditorAction.Parent("o1"))
+        h.vm.onAction(TaskEditorAction.Save)
+        runCurrent()
+        h.vm.onAction(TaskEditorAction.Edit("c1"))
+        runCurrent()
+        h.vm.onAction(TaskEditorAction.Parent(null))
+        assertEquals("Edit task", h.vm.state.value.heading)
+        h.vm.onAction(TaskEditorAction.Save)
+        runCurrent()
+        assertEquals(listOf("update:c1:Parent(value=o1)", "update:c1:Parent(value=null)"), repo.calls)
+    }
+
     @Test fun headingFollowsMode() = runTest {
         val repo = FakeTasksRepository(listOf(t1))
         val h = start(repo)

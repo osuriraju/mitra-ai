@@ -1,7 +1,14 @@
 package tech.beyondscale.mitra.feature.tasks
 
+import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.ViewModelStore
+import androidx.lifecycle.viewmodel.initializer
+import androidx.lifecycle.viewmodel.viewModelFactory
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.launch
@@ -13,11 +20,13 @@ import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import kotlinx.datetime.TimeZone
+import tech.beyondscale.mitra.core.ApplicationScope
 import tech.beyondscale.mitra.designsystem.components.ChipTone
 import tech.beyondscale.mitra.domain.model.Priority
 import tech.beyondscale.mitra.domain.model.Project
 import tech.beyondscale.mitra.domain.model.Task
 import tech.beyondscale.mitra.domain.model.TaskStatus
+import tech.beyondscale.mitra.domain.repository.TasksRepository
 import tech.beyondscale.mitra.domain.tasks.SubProgress
 import tech.beyondscale.mitra.domain.tasks.nextMonday
 import tech.beyondscale.mitra.feature.common.HapticKind
@@ -46,8 +55,10 @@ class TaskDetailViewModelTest : ViewModelTest() {
 
     private class Harness(val vm: TaskDetailViewModel, val events: List<UiEvent<TaskDetailAction>>)
 
-    private fun TestScope.start(repo: FakeTasksRepository, id: String = "t1"): Harness {
-        val vm = TaskDetailViewModel(id, repo, clock)
+    /** Runs app-scope work (the last-moment notes flush) immediately. */
+    private fun TestScope.appScope() = ApplicationScope(CoroutineScope(UnconfinedTestDispatcher(testScheduler)))
+
+    private fun TestScope.start(repo: TasksRepository, id: String = "t1", vm: TaskDetailViewModel = TaskDetailViewModel(id, repo, clock, appScope())): Harness {
         val events = mutableListOf<UiEvent<TaskDetailAction>>()
         val d = UnconfinedTestDispatcher(testScheduler)
         backgroundScope.launch(d) { vm.state.collect {} }
@@ -138,6 +149,59 @@ class TaskDetailViewModelTest : ViewModelTest() {
         assertEquals(listOf("update:t1:Notes(value=abc)"), repo.calls)
         runCurrent()
         assertEquals("abc", h.vm.state.value.notes)
+    }
+
+    @Test fun pendingNotesAreSavedWhenTheViewModelIsCleared() = runTest {
+        val repo = FakeTasksRepository(listOf(task))
+        val store = ViewModelStore()
+        val vm = ViewModelProvider.create(store, viewModelFactory { initializer { TaskDetailViewModel("t1", repo, clock, appScope()) } })[TaskDetailViewModel::class]
+        start(repo, vm = vm)
+        vm.onAction(TaskDetailAction.Notes("last words"))
+        store.clear()
+        runCurrent()
+        assertEquals(listOf("update:t1:Notes(value=last words)"), repo.calls)
+        advanceTimeBy(1_000)
+        assertEquals(listOf("update:t1:Notes(value=last words)"), repo.calls)
+    }
+
+    @Test fun flushNowSavesOnceAndCancelsTheDebounce() = runTest {
+        val repo = FakeTasksRepository(listOf(task))
+        val h = start(repo)
+        h.vm.onAction(TaskDetailAction.Notes("abc"))
+        h.vm.flushNow()
+        h.vm.flushNow()
+        advanceTimeBy(1_000)
+        assertEquals(listOf("update:t1:Notes(value=abc)"), repo.calls)
+        h.vm.flushNow()
+        assertEquals(listOf("update:t1:Notes(value=abc)"), repo.calls)
+    }
+
+    @Test fun draftStaysUntilTheStoreCatchesUp() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val inner = FakeTasksRepository(listOf(task))
+        val repo = LaggingRepository(inner)
+        val h = start(repo)
+        h.vm.onAction(TaskDetailAction.Notes("abc"))
+        advanceTimeBy(601)
+        runCurrent()
+        assertEquals(listOf("update:t1:Notes(value=abc)"), inner.calls)
+        // The write landed but the observed flow has not re-emitted: still the typed text, not the stale "Draft".
+        assertEquals("abc", h.vm.state.value.notes)
+        repo.catchUp()
+        runCurrent()
+        assertEquals("abc", h.vm.state.value.notes)
+        // The draft is gone once the store matched it, so later changes from elsewhere show through.
+        inner.taskFlow.value = listOf(task.copy(notes = "edited elsewhere"))
+        repo.catchUp()
+        runCurrent()
+        assertEquals("edited elsewhere", h.vm.state.value.notes)
+    }
+
+    /** A repository whose task flow only reflects writes when [catchUp] is called (like a slow DB query re-run). */
+    private class LaggingRepository(private val inner: FakeTasksRepository) : TasksRepository by inner {
+        private val shown = MutableStateFlow(inner.taskFlow.value)
+        override val tasks: Flow<List<Task>> = shown
+        fun catchUp() { shown.value = inner.taskFlow.value }
     }
 
     @Test fun addSubtaskInheritsProjectAndDue() = runTest {

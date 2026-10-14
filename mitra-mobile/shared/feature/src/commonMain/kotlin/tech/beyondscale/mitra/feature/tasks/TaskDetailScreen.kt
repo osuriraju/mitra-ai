@@ -31,6 +31,7 @@ import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -51,6 +52,8 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import org.koin.compose.viewmodel.koinViewModel
 import org.koin.core.parameter.parametersOf
@@ -92,6 +95,9 @@ fun TaskDetailRoute(
     EventEffect(vm.events, vm::onAction)
     val deleted by rememberUpdatedState(onDeleted)
     val back by rememberUpdatedState(onBack)
+    // Save a pending notes draft when the app goes to the background or the screen leaves.
+    LifecycleEventEffect(Lifecycle.Event.ON_STOP) { vm.flushNow() }
+    DisposableEffect(vm) { onDispose { vm.flushNow() } }
     LaunchedEffect(vm) {
         vm.deleted.collect { removed ->
             deleted(removed)

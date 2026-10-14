@@ -2,8 +2,6 @@ package tech.beyondscale.mitra.feature.tasks
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import kotlinx.coroutines.DelicateCoroutinesApi
-import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
@@ -12,13 +10,16 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.toLocalDateTime
 import tech.beyondscale.mitra.core.AppClock
+import tech.beyondscale.mitra.core.ApplicationScope
 import tech.beyondscale.mitra.core.dayFlow
 import tech.beyondscale.mitra.core.fmtDay
 import tech.beyondscale.mitra.core.fmtTime
@@ -80,8 +81,16 @@ sealed interface TaskDetailAction {
     data object Delete : TaskDetailAction
 }
 
-class TaskDetailViewModel(private val id: String, private val tasks: TasksRepository, private val clock: AppClock) : ViewModel() {
+class TaskDetailViewModel(
+    private val id: String,
+    private val tasks: TasksRepository,
+    private val clock: AppClock,
+    private val appScope: ApplicationScope,
+) : ViewModel() {
+    /** What the user typed; shown instead of the stored notes until the database reports the same text. */
     private val notesDraft = MutableStateFlow<String?>(null)
+    /** The last text handed to the repository, so a flush on stop/clear does not write it twice. */
+    private var savedNotes: String? = null
     private var notesJob: Job? = null
 
     private val queue = EventQueue<TaskDetailAction>()
@@ -90,6 +99,15 @@ class TaskDetailViewModel(private val id: String, private val tasks: TasksReposi
     private val deletedChannel = Channel<List<Task>>(Channel.BUFFERED)
     /** What [TaskDetailAction.Delete] removed (the task and its subtasks), for the shell's Undo. */
     val deleted: Flow<List<Task>> = deletedChannel.receiveAsFlow()
+
+    init {
+        // Drop the draft only once the stored notes have caught up, so the field never flickers back to stale text.
+        viewModelScope.launch {
+            tasks.tasks.map { all -> all.firstOrNull { it.id == id }?.notes }.distinctUntilChanged().collect { stored ->
+                if (stored != null) notesDraft.compareAndSet(stored, null)
+            }
+        }
+    }
 
     val state: StateFlow<TaskDetailUiState> = combine(tasks.tasks, tasks.projects, clock.dayFlow(), notesDraft, ::build)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), TaskDetailUiState())
@@ -110,10 +128,11 @@ class TaskDetailViewModel(private val id: String, private val tasks: TasksReposi
             is TaskDetailAction.SetDue -> launch { tasks.update(id, listOf(TaskChange.Due(a.due))) }
             is TaskDetailAction.Notes -> {
                 notesDraft.value = a.text
+                savedNotes = null
                 notesJob?.cancel()
                 notesJob = viewModelScope.launch {
                     delay(NOTES_DEBOUNCE_MS)
-                    flushNotes()
+                    writeNotes()
                 }
             }
             is TaskDetailAction.AddSubtask -> {
@@ -144,14 +163,17 @@ class TaskDetailViewModel(private val id: String, private val tasks: TasksReposi
         }
     }
 
-    override fun onCleared() {
-        // viewModelScope is already cancelled here; a pending note must still reach the database.
-        val text = notesDraft.value
-        if (notesJob?.isActive == true && text != null) {
-            @OptIn(DelicateCoroutinesApi::class)
-            GlobalScope.launch { tasks.update(id, listOf(TaskChange.Notes(text))) }
-        }
+    /** Saves a pending notes draft now, on the app scope (the screen is stopping or going away). */
+    fun flushNow() {
+        notesJob?.cancel()
+        val text = notesDraft.value ?: return
+        if (text == savedNotes) return
+        savedNotes = text
+        appScope.scope.launch { tasks.update(id, listOf(TaskChange.Notes(text))) }
     }
+
+    // viewModelScope is already cancelled here, so the debounce job is dead; the app scope still runs.
+    override fun onCleared() = flushNow()
 
     private fun launch(block: suspend () -> Unit) {
         viewModelScope.launch { block() }
@@ -159,11 +181,11 @@ class TaskDetailViewModel(private val id: String, private val tasks: TasksReposi
 
     private suspend fun find(taskId: String): Task? = tasks.tasks.first().firstOrNull { it.id == taskId }
 
-    private suspend fun flushNotes() {
+    private suspend fun writeNotes() {
         val text = notesDraft.value ?: return
+        if (text == savedNotes) return
+        savedNotes = text
         tasks.update(id, listOf(TaskChange.Notes(text)))
-        // Keep showing the draft if the user typed on while the write ran.
-        notesDraft.compareAndSet(text, null)
     }
 
     private suspend fun toggle(taskId: String, self: Boolean) {

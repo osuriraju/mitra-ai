@@ -29,5 +29,5 @@ val featureModule = module {
     viewModelOf(::TasksViewModel)
     viewModelOf(::TaskEditorViewModel)
     viewModelOf(::QuickAddViewModel)
-    viewModel { (id: String) -> TaskDetailViewModel(id, get(), get()) }
+    viewModel { (id: String) -> TaskDetailViewModel(id, get(), get(), get()) }
 }

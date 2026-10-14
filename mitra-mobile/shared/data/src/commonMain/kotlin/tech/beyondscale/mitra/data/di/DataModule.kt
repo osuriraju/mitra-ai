@@ -10,6 +10,7 @@ import kotlinx.serialization.json.Json
 import org.koin.core.module.Module
 import org.koin.dsl.module
 import tech.beyondscale.mitra.core.AppClock
+import tech.beyondscale.mitra.core.ApplicationScope
 import tech.beyondscale.mitra.core.SystemClock
 import tech.beyondscale.mitra.data.db.MitraDb
 import tech.beyondscale.mitra.data.local.LocalData
@@ -38,6 +39,7 @@ class AppScope { val scope = CoroutineScope(SupervisorJob() + Dispatchers.Defaul
 /** Platform modules must also provide: SqlDriver, SecureStore, HttpClientEngine, SyncScheduler, PeriodicSync. */
 fun dataModule(baseUrl: String): Module = module {
     single { AppScope() }
+    single { ApplicationScope(get<AppScope>().scope) }
     single<AppClock> { SystemClock }
     single { MitraDb(get<SqlDriver>()) }
     single { PersistentCookiesStorage(get(), get()) }

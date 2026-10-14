@@ -2,6 +2,7 @@ package tech.beyondscale.mitra.feature.tasks
 
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -14,6 +15,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
@@ -180,6 +183,13 @@ private fun TaskForm(state: TaskEditorUiState, onAction: (TaskEditorAction) -> U
                 }
             }
 
+            Field("Subtask of") {
+                ParentPicker(state, onAction)
+                if (f.parentId != null) {
+                    Text("Subtasks are full tasks: own status, priority and due date.", style = Mitra.type.xs, color = c.muted)
+                }
+            }
+
             MitraTextField(
                 value = f.notes,
                 onValueChange = { onAction(TaskEditorAction.Notes(it)) },
@@ -201,6 +211,27 @@ private fun TaskForm(state: TaskEditorUiState, onAction: (TaskEditorAction) -> U
 
     if (pickDate) MitraDatePickerDialog(f.due ?: today.ifEmpty { null }, onPick = { onAction(TaskEditorAction.Due(it)) }, onDismiss = { pickDate = false })
     if (pickTime) MitraTimePickerDialog(f.time, onPick = { onAction(TaskEditorAction.Time(it)) }, onDismiss = { pickTime = false })
+}
+
+@Composable
+private fun ParentPicker(state: TaskEditorUiState, onAction: (TaskEditorAction) -> Unit) {
+    var open by remember { mutableStateOf(false) }
+    val current = state.parentOptions.firstOrNull { it.id == state.form.parentId }
+    Box {
+        MitraChip(
+            "${current?.title ?: "None — top-level task"} ▾",
+            tone = ChipTone.Outline,
+            icon = MitraIcons.Layers,
+            selected = current != null,
+            onClick = { open = true },
+        )
+        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            DropdownMenuItem(text = { Text("None — top-level task", style = Mitra.type.body) }, onClick = { open = false; onAction(TaskEditorAction.Parent(null)) })
+            state.parentOptions.forEach { p ->
+                DropdownMenuItem(text = { Text(p.title, style = Mitra.type.body, maxLines = 1) }, onClick = { open = false; onAction(TaskEditorAction.Parent(p.id)) })
+            }
+        }
+    }
 }
 
 @Composable
