@@ -3,8 +3,6 @@ package tech.beyondscale.mitra.app
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.selection.selectable
-import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -18,8 +16,12 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.windowInsetsTopHeight
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -31,6 +33,7 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -47,6 +50,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavDestination.Companion.hasRoute
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavGraph.Companion.findStartDestination
@@ -54,18 +58,35 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import androidx.navigation.toRoute
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.first
+import org.koin.compose.koinInject
+import org.koin.compose.viewmodel.koinViewModel
 import tech.beyondscale.mitra.designsystem.components.Avatar
+import tech.beyondscale.mitra.designsystem.components.LocalSnackbar
 import tech.beyondscale.mitra.designsystem.components.MitraTopBar
+import tech.beyondscale.mitra.designsystem.components.SnackbarController
 import tech.beyondscale.mitra.designsystem.components.SyncPill
 import tech.beyondscale.mitra.designsystem.icons.MitraIcons
 import tech.beyondscale.mitra.designsystem.theme.Mitra
 import tech.beyondscale.mitra.domain.model.Modules
 import tech.beyondscale.mitra.domain.model.SyncStatus
+import tech.beyondscale.mitra.domain.model.TaskDraft
 import tech.beyondscale.mitra.domain.model.User
 import tech.beyondscale.mitra.feature.common.ComingSoonScreen
+import tech.beyondscale.mitra.feature.common.EventEffect
+import tech.beyondscale.mitra.feature.quickadd.QuickAddAction
+import tech.beyondscale.mitra.feature.quickadd.QuickAddSheet
+import tech.beyondscale.mitra.feature.quickadd.QuickAddViewModel
 import tech.beyondscale.mitra.feature.settings.SettingsRoute
+import tech.beyondscale.mitra.feature.tasks.FocusRoute
+import tech.beyondscale.mitra.feature.tasks.ProjectDetailRoute
+import tech.beyondscale.mitra.feature.tasks.TaskDetailRoute
+import tech.beyondscale.mitra.feature.tasks.TaskEditorAction
+import tech.beyondscale.mitra.feature.tasks.TaskEditorViewModel
+import tech.beyondscale.mitra.feature.tasks.TaskFormSheet
+import tech.beyondscale.mitra.feature.tasks.TasksRoute
 import tech.beyondscale.mitra.feature.today.TodayRoute
 
 internal data class Dest(val label: String, val icon: ImageVector, val route: Any)
@@ -80,6 +101,9 @@ private val NOTES = Dest("Notes", MitraIcons.Note, NotesDest)
 private val AI = Dest("AI", MitraIcons.Sparkles, AiDest)
 private val SETTINGS = Dest("Settings", MitraIcons.Settings, SettingsDest)
 private val MORE = Dest("More", MitraIcons.Grid, Unit)
+
+/** Routes whose chrome differs from a tab's. */
+private val CHROME_ROUTES = listOf(TaskDetailDest::class, ProjectDetailDest::class, FocusDest::class)
 
 /** Bottom-bar tabs and More-sheet entries allowed for the enabled [modules]. */
 internal fun destinationsFor(modules: Modules): Pair<List<Dest>, List<Dest>> {
@@ -99,67 +123,148 @@ internal fun destinationsFor(modules: Modules): Pair<List<Dest>, List<Dest>> {
 @Composable
 internal fun MainShell(user: User, sync: SyncStatus, messages: Flow<String>) {
     val nav = rememberNavController()
-    val snackbar = remember { SnackbarHostState() }
-    val scope = rememberCoroutineScope()
+    val snackbarHost = remember { SnackbarHostState() }
+    // The shell's scope hosts every snackbar, so an Undo outlives the screen (or sheet) that raised it.
+    val shellScope = rememberCoroutineScope()
+    val snackbar = remember(snackbarHost, shellScope) { SnackbarController(snackbarHost, shellScope) }
+    // Shell-scoped sheets: obtained outside any nav entry so their Undo snackbars survive navigation.
+    val quickAdd: QuickAddViewModel = koinViewModel()
+    val editor: TaskEditorViewModel = koinViewModel()
+    val launches: LaunchRequests = koinInject()
     var moreOpen by rememberSaveable { mutableStateOf(false) }
-    LaunchedEffect(messages) { messages.collect { snackbar.showSnackbar(it) } }
+    var quickAddOpen by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(messages, snackbar) { messages.collect { snackbar.show(it) } }
 
     // Bottom bar: Today · Tasks · ＋ · Money (Habits if Money is off) · More
     val modules = user.settings.modules
     val (tabs, more) = remember(modules) { destinationsFor(modules) }
     val entry by nav.currentBackStackEntryAsState()
-    val current = (tabs + more).firstOrNull { d -> entry?.destination?.hierarchy?.any { it.hasRoute(d.route::class) } == true }
+    val destination = entry?.destination
+    val chrome = chromeFor(CHROME_ROUTES.firstOrNull { k -> destination?.hasRoute(k) == true })
+    // Task and project detail and Focus all live under Tasks.
+    val current = if (chrome != Chrome.Tab) TASKS
+    else (tabs + more).firstOrNull { d -> destination?.hierarchy?.any { it.hasRoute(d.route::class) } == true }
 
     fun go(route: Any) = nav.navigate(route) {
         popUpTo(nav.graph.findStartDestination().id) { saveState = true }
         launchSingleTop = true
         restoreState = true
     }
+    fun openTask(id: String) = nav.navigate(TaskDetailDest(id))
+    // Never pop the last entry (a double tap on Back would otherwise leave an empty NavHost).
+    fun back() { if (nav.previousBackStackEntry != null) nav.popBackStack() }
+    fun select(d: Dest) {
+        // From a detail screen, Tasks returns to the list beneath it rather than restoring the detail.
+        if (chrome != Chrome.Tab && d == TASKS && nav.popBackStack<TasksDest>(inclusive = false)) return
+        go(d.route)
+    }
 
     // A module switched off while its screen is open would strand the user: fall back to Today.
-    LaunchedEffect(modules, current, entry) {
-        if (entry != null && current == null && entry?.destination?.route != null) go(TodayDest)
+    LaunchedEffect(modules, current, entry, chrome) {
+        if (chrome == Chrome.Tab && entry != null && current == null && entry?.destination?.route != null) go(TodayDest)
     }
 
-    Scaffold(
-        containerColor = Mitra.colors.bg,
-        contentWindowInsets = WindowInsets(0),
-        snackbarHost = { SnackbarHost(snackbar) },
-        topBar = {
-            MitraTopBar(title = current?.label ?: "Mitra", modifier = Modifier.statusBarsPadding()) {
-                syncLabel(sync)?.let { (text, tone) -> SyncPill(text, tone) }
-                IconButton(onClick = { go(SettingsDest) }) { Avatar(user.initials) }
-            }
-        },
-        bottomBar = {
-            BottomBar(
-                tabs = tabs, current = current, moreSelected = current != null && current in more,
-                onSelect = { go(it.route) }, onMore = { moreOpen = true },
-                onAdd = { scope.launch { snackbar.showSnackbar("Quick add arrives with Tasks") } },
-            )
-        },
-    ) { padding ->
-        NavHost(nav, startDestination = TodayDest, modifier = Modifier.padding(padding)) {
-            composable<TodayDest> { TodayRoute() }
-            composable<TasksDest> { ComingSoonScreen("Tasks", MitraIcons.CheckSquare) }
-            composable<MoneyDest> { ComingSoonScreen("Money", MitraIcons.Wallet) }
-            composable<HabitsDest> { ComingSoonScreen("Habits", MitraIcons.Repeat) }
-            composable<GoalsDest> { ComingSoonScreen("Goals", MitraIcons.Target) }
-            composable<WellnessDest> { ComingSoonScreen("Wellness", MitraIcons.Heart) }
-            composable<NotesDest> { ComingSoonScreen("Notes", MitraIcons.Note) }
-            composable<AiDest> { ComingSoonScreen("AI", MitraIcons.Sparkles) }
-            composable<SettingsDest> { SettingsRoute() }
+    // Widget / shortcut targets wait in LaunchRequests (also while signed out) until this shell handles them.
+    val pending by launches.pending.collectAsStateWithLifecycle()
+    LaunchedEffect(pending) {
+        val target = pending ?: return@LaunchedEffect
+        nav.currentBackStackEntryFlow.first() // the graph is set
+        when (target) {
+            is LaunchTarget.OpenTask -> { go(TasksDest); openTask(target.id) }
+            LaunchTarget.OpenTasks -> go(TasksDest)
+            LaunchTarget.QuickAddTask -> quickAddOpen = true
         }
+        launches.consume()
     }
 
-    if (moreOpen) {
-        ModalBottomSheet(onDismissRequest = { moreOpen = false }, containerColor = Mitra.colors.surface) {
-            Column(Modifier.padding(start = 16.dp, end = 16.dp, bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text("All sections", style = Mitra.type.h3, color = Mitra.colors.text)
-                more.chunked(3).forEach { row ->
-                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        row.forEach { d -> MoreTile(d, selected = d == current) { moreOpen = false; go(d.route) } }
-                        repeat(3 - row.size) { Spacer(Modifier.weight(1f)) }
+    CompositionLocalProvider(LocalSnackbar provides snackbar) {
+        EventEffect(quickAdd.events, quickAdd::onAction, onClose = { quickAddOpen = false })
+        EventEffect(editor.events, editor::onAction)
+        val addTask: (TaskDraft) -> Unit = { editor.onAction(TaskEditorAction.Open(it)) }
+
+        Scaffold(
+            containerColor = Mitra.colors.bg,
+            contentWindowInsets = WindowInsets(0),
+            snackbarHost = { SnackbarHost(snackbarHost) },
+            topBar = {
+                when (chrome) {
+                    Chrome.Tab -> MitraTopBar(title = current?.label ?: "Mitra", modifier = Modifier.statusBarsPadding()) {
+                        syncLabel(sync)?.let { (text, tone) -> SyncPill(text, tone) }
+                        IconButton(onClick = { go(SettingsDest) }) { Avatar(user.initials) }
+                    }
+                    // Detail screens draw their own back bar; keep them clear of the status bar.
+                    Chrome.Detail -> Spacer(Modifier.fillMaxWidth().windowInsetsTopHeight(WindowInsets.statusBars))
+                    Chrome.Fullscreen -> Unit
+                }
+            },
+            bottomBar = {
+                if (chrome != Chrome.Fullscreen) {
+                    BottomBar(
+                        tabs = tabs, current = current, moreSelected = current != null && current in more,
+                        onSelect = ::select, onMore = { moreOpen = true },
+                        onAdd = { quickAddOpen = true },
+                    )
+                }
+            },
+        ) { padding ->
+            NavHost(nav, startDestination = TodayDest, modifier = Modifier.padding(padding)) {
+                composable<TodayDest> { TodayRoute(onOpenTasks = { go(TasksDest) }, onOpenTask = ::openTask) }
+                composable<TasksDest> {
+                    TasksRoute(
+                        onOpenTask = ::openTask,
+                        onOpenProject = { nav.navigate(ProjectDetailDest(it)) },
+                        onAddTask = addTask,
+                        onFocus = { nav.navigate(FocusDest()) },
+                    )
+                }
+                composable<TaskDetailDest> { e ->
+                    val id = e.toRoute<TaskDetailDest>().id
+                    TaskDetailRoute(
+                        id = id,
+                        onBack = ::back,
+                        onEdit = { editor.onAction(TaskEditorAction.Edit(id)) },
+                        onAddTask = addTask,
+                        onOpenTask = ::openTask,
+                        onFocus = { nav.navigate(FocusDest(id)) },
+                        onDeleted = { editor.onAction(TaskEditorAction.Deleted(it)) },
+                    )
+                }
+                composable<ProjectDetailDest> { e ->
+                    ProjectDetailRoute(e.toRoute<ProjectDetailDest>().id, onBack = ::back, onOpenTask = ::openTask, onAddTask = addTask)
+                }
+                composable<FocusDest> { e ->
+                    FocusRoute(e.toRoute<FocusDest>().taskId, onClose = ::back, onOpenTask = ::openTask)
+                }
+                composable<MoneyDest> { ComingSoonScreen("Money", MitraIcons.Wallet) }
+                composable<HabitsDest> { ComingSoonScreen("Habits", MitraIcons.Repeat) }
+                composable<GoalsDest> { ComingSoonScreen("Goals", MitraIcons.Target) }
+                composable<WellnessDest> { ComingSoonScreen("Wellness", MitraIcons.Heart) }
+                composable<NotesDest> { ComingSoonScreen("Notes", MitraIcons.Note) }
+                composable<AiDest> { ComingSoonScreen("AI", MitraIcons.Sparkles) }
+                composable<SettingsDest> { SettingsRoute() }
+            }
+        }
+
+        if (quickAddOpen) {
+            val state by quickAdd.state.collectAsStateWithLifecycle()
+            QuickAddSheet(state, quickAdd::onAction, onDismiss = {
+                quickAddOpen = false
+                quickAdd.onAction(QuickAddAction.Reset)
+            })
+        }
+
+        val editorState by editor.state.collectAsStateWithLifecycle()
+        TaskFormSheet(editorState, editor::onAction)
+
+        if (moreOpen) {
+            ModalBottomSheet(onDismissRequest = { moreOpen = false }, containerColor = Mitra.colors.surface) {
+                Column(Modifier.padding(start = 16.dp, end = 16.dp, bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("All sections", style = Mitra.type.h3, color = Mitra.colors.text)
+                    more.chunked(3).forEach { row ->
+                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            row.forEach { d -> MoreTile(d, selected = d == current) { moreOpen = false; go(d.route) } }
+                            repeat(3 - row.size) { Spacer(Modifier.weight(1f)) }
+                        }
                     }
                 }
             }

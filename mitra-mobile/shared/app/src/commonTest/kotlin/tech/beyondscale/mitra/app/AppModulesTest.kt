@@ -18,12 +18,17 @@ import tech.beyondscale.mitra.domain.repository.ModuleRefresher
 import tech.beyondscale.mitra.domain.repository.PreferencesRepository
 import tech.beyondscale.mitra.domain.repository.SettingsRepository
 import tech.beyondscale.mitra.domain.repository.SyncController
+import tech.beyondscale.mitra.domain.repository.TasksRepository
 import tech.beyondscale.mitra.feature.auth.ForgotPasswordViewModel
 import tech.beyondscale.mitra.feature.auth.LoginViewModel
 import tech.beyondscale.mitra.feature.auth.SignupViewModel
+import tech.beyondscale.mitra.feature.quickadd.QuickAddViewModel
 import tech.beyondscale.mitra.feature.settings.SettingsViewModel
 import tech.beyondscale.mitra.feature.tasks.FocusViewModel
 import tech.beyondscale.mitra.feature.tasks.ProjectDetailViewModel
+import tech.beyondscale.mitra.feature.tasks.TaskDetailViewModel
+import tech.beyondscale.mitra.feature.tasks.TaskEditorViewModel
+import tech.beyondscale.mitra.feature.tasks.TasksViewModel
 import tech.beyondscale.mitra.feature.today.TodayViewModel
 import tech.beyondscale.mitra.testing.ViewModelTest
 import kotlin.test.AfterTest
@@ -56,12 +61,18 @@ class AppModulesTest : ViewModelTest() {
         koin.get<PreferencesRepository>()
         koin.get<SyncController>()
         koin.get<ModuleRefresher>()
+        koin.get<TasksRepository>()
+        koin.get<LaunchRequests>()
         koin.get<RootViewModel>()
         koin.get<LoginViewModel>()
         koin.get<SignupViewModel>()
         koin.get<ForgotPasswordViewModel>()
         koin.get<TodayViewModel>()
         koin.get<SettingsViewModel>()
+        koin.get<TasksViewModel>()
+        koin.get<TaskEditorViewModel>()
+        koin.get<QuickAddViewModel>()
+        koin.get<TaskDetailViewModel> { parametersOf("t1") }
         koin.get<FocusViewModel> { parametersOf("") }
         koin.get<ProjectDetailViewModel> { parametersOf("p1") }
     }

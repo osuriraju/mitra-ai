@@ -10,5 +10,8 @@ import tech.beyondscale.mitra.feature.di.featureModule
 fun appModules(baseUrl: String): List<Module> = listOf(
     dataModule(baseUrl),
     featureModule,
-    module { viewModelOf(::RootViewModel) },
+    module {
+        viewModelOf(::RootViewModel)
+        single { LaunchRequests() }
+    },
 )
