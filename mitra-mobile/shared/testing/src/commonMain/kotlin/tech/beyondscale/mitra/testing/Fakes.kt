@@ -47,12 +47,17 @@ class FakeSettingsRepository : SettingsRepository {
     override suspend fun setModule(key: ModuleKey, enabled: Boolean) { updates += key to enabled }
     val shareWellness = mutableListOf<Boolean>()
     override suspend fun setShareWellness(enabled: Boolean) { shareWellness += enabled }
+    val quietHours = mutableListOf<Boolean>()
+    override suspend fun setQuietHours(enabled: Boolean) { quietHours += enabled }
 }
 
 class FakePreferencesRepository : PreferencesRepository {
     val themeFlow = MutableStateFlow(ThemeMode.Dark)
     override val theme = themeFlow
     override suspend fun setTheme(mode: ThemeMode) { themeFlow.value = mode }
+    val notifyFlow = MutableStateFlow(tech.beyondscale.mitra.domain.notify.NotificationPrefs())
+    override val notificationPrefs = notifyFlow
+    override suspend fun setNotificationPrefs(prefs: tech.beyondscale.mitra.domain.notify.NotificationPrefs) { notifyFlow.value = prefs }
 }
 
 class FakeSyncController : SyncController {

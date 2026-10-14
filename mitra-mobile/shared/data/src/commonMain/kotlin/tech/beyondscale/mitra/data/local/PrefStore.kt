@@ -8,6 +8,8 @@ import tech.beyondscale.mitra.data.db.MitraDb
 
 object PrefKeys {
     const val THEME = "theme"
+    /** "tasks,habits,bills" flags as "1"/"0", e.g. "1,1,0". */
+    const val NOTIFY = "notify"
     const val LAST_USER_ID = "lastUserId"
     /** Comma-separated ids of money transactions whose write the server refused, until a refresh settles them. */
     const val MONEY_REJECTED_TX = "moneyRejectedTx"

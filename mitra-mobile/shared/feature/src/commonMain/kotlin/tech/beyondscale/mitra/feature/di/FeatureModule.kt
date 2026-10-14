@@ -13,6 +13,7 @@ import tech.beyondscale.mitra.feature.ai.AiChatViewModel
 import tech.beyondscale.mitra.feature.ai.AiLogViewModel
 import tech.beyondscale.mitra.feature.ai.AiSuggestionsViewModel
 import tech.beyondscale.mitra.feature.notes.JournalViewModel
+import tech.beyondscale.mitra.feature.settings.NotificationSettingsViewModel
 import tech.beyondscale.mitra.feature.notes.NoteEditorViewModel
 import tech.beyondscale.mitra.feature.notes.NotesSearchViewModel
 import tech.beyondscale.mitra.feature.notes.NotesViewModel
@@ -80,6 +81,7 @@ val featureModule = module {
         val settings = get<SettingsRepository>()
         WellnessSettingsViewModel(get(), onShareAiChanged = { settings.setShareWellness(it) })
     }
+    viewModelOf(::NotificationSettingsViewModel)
     viewModelOf(::NotesViewModel)
     viewModelOf(::NotesSearchViewModel)
     viewModelOf(::JournalViewModel)

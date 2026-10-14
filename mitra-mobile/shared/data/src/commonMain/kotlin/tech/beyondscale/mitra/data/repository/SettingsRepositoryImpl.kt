@@ -65,6 +65,8 @@ class SettingsRepositoryImpl(
 
     override suspend fun setShareWellness(enabled: Boolean) = patch { buildJsonObject { put("shareWellness", enabled) } }
 
+    override suspend fun setQuietHours(enabled: Boolean) = patch { buildJsonObject { put("quietHours", enabled) } }
+
     /** Applies [build]'s patch to the cached user and queues it (coalesced with any queued settings PATCH). */
     private suspend fun patch(build: (UserDto) -> JsonObject) {
         withContext(io) {
