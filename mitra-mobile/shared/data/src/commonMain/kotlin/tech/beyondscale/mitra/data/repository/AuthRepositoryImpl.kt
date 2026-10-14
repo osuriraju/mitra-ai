@@ -4,7 +4,9 @@ import io.ktor.http.HttpMethod
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.getAndUpdate
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.flow.updateAndGet
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import tech.beyondscale.mitra.core.AppError
@@ -74,7 +76,9 @@ class AuthRepositoryImpl(
         // Session gone server-side: back to Login, but keep local data + queued changes for the same user.
         // UNDISPATCHED so the collector is subscribed before anything can emit.
         scope.launch(start = CoroutineStart.UNDISPATCHED) {
-            api.unauthorized.collect { if (refreshing.value == 0) auth.value = Auth.SignedOut }
+            api.unauthorized.collect {
+                if (refreshing.value == 0) auth.value = Auth.SignedOut else unauthorizedDuringRefresh.value = true
+            }
         }
     }
 
@@ -82,11 +86,13 @@ class AuthRepositoryImpl(
      * Session epoch: bumped (under [lock]) by logout, and checked under the same lock before an adopt writes.
      * A request that started before a logout therefore can't resurrect the user. Refresh handles its own 401
      * (only if the epoch is unchanged); the shared `unauthorized` broadcast is ignored while a refresh is in
-     * flight so its late delivery can't undo a newer sign-in.
+     * flight so its late delivery can't undo a newer sign-in. It is not dropped, though: if the refresh then fails
+     * without settling the session itself (offline, timeout, 5xx), the 401 applies once the last refresh ends.
      */
     private val lock = Mutex()
     private var epoch = 0L
     private val refreshing = MutableStateFlow(0)
+    private val unauthorizedDuringRefresh = MutableStateFlow(false)
     private var refreshJob: Job? = null
 
     override suspend fun restore() {
@@ -106,8 +112,9 @@ class AuthRepositoryImpl(
     override suspend fun refresh(): Outcome<User> {
         val started = epoch
         refreshing.update { it + 1 }
+        var result: Outcome<User>? = null
         try {
-            return when (val r = api.call<UserEnvelope>(HttpMethod.Get, "auth/me")) {
+            result = when (val r = api.call<UserEnvelope>(HttpMethod.Get, "auth/me")) {
                 is Outcome.Err -> {
                     val e = r.error
                     if (e is AppError.Unauthenticated && e.code == "UNAUTHENTICATED" && started == epoch) auth.value = Auth.SignedOut
@@ -115,8 +122,13 @@ class AuthRepositoryImpl(
                 }
                 is Outcome.Ok -> adopt(r.value.user, started)
             }
+            return result
         } finally {
-            refreshing.update { it - 1 }
+            if (refreshing.updateAndGet { it - 1 } == 0) {
+                val missed = unauthorizedDuringRefresh.getAndUpdate { false }
+                // A successful refresh proves the session is alive, so a 401 that raced it is stale.
+                if (missed && result !is Outcome.Ok && started == epoch) auth.value = Auth.SignedOut
+            }
         }
     }
 

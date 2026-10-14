@@ -252,4 +252,48 @@ class SyncEngineTest {
         assertEquals(1, pending().size)
         assertEquals(0, rejections.size)
     }
+
+    @Test fun detachedDrainFinishesWhenItsCallerIsCancelled() = runTest {
+        val release = kotlinx.coroutines.CompletableDeferred<Unit>()
+        server.routes["PATCH /api/a"] = { release.await(); json("""{"ok":1}""") }
+        enqueue("a")
+        val engine = engine()
+        // The periodic job is cancelled as soon as the outbox looks empty — possibly while its own drain is mid-send.
+        val worker = backgroundScope.launch { engine.drainDetached() }
+        withContext(Dispatchers.Default) { withTimeout(5_000) { while (server.log.isEmpty()) delay(10) } }
+        worker.cancel()
+        release.complete(Unit)
+        withContext(Dispatchers.Default) { withTimeout(5_000) { while (successes.isEmpty()) delay(10) } }
+        assertEquals(0, pending().size)
+        assertEquals(0, retries)
+    }
+
+    @Test fun throwingHandlerIsLoggedAndQueueContinues() = runTest {
+        server.routes["PATCH /api/a"] = { json("{}") }
+        server.routes["PATCH /api/b"] = { json("{}") }
+        val logged = mutableListOf<String>()
+        val previous = tech.beyondscale.mitra.core.MitraLog.sink
+        tech.beyondscale.mitra.core.MitraLog.sink = { _, m, e -> logged += "$m: ${e?.message}" }
+        try {
+            enqueue("a"); enqueue("b")
+            val engine = engine()
+            engine.register("t", object : SyncHandler {
+                override suspend fun onSuccess(response: JsonElement?) { error("boom") }
+                override suspend fun onRejected(error: AppError) {}
+            })
+            assertEquals(SyncEngine.Result.Drained, engine.drain())
+            assertEquals(listOf("sync handler failed: boom", "sync handler failed: boom"), logged)
+            assertEquals(0, pending().size)
+        } finally {
+            tech.beyondscale.mitra.core.MitraLog.sink = previous
+        }
+    }
+
+    @Test fun rejectionWithNoCollectorIsReplayedLater() = runTest {
+        server.routes["PATCH /api/a"] = { json(errorJson("NOT_FOUND", "Task not found"), HttpStatusCode.NotFound) }
+        enqueue("a")
+        val engine = engine()
+        engine.drain() // no screen collecting (app in background)
+        engine.messages.test { assertEquals("Couldn't save · Task not found", awaitItem()) }
+    }
 }

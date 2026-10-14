@@ -10,6 +10,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import tech.beyondscale.mitra.core.AppClock
+import tech.beyondscale.mitra.core.MitraLog
 import tech.beyondscale.mitra.domain.model.SessionState
 import tech.beyondscale.mitra.domain.repository.ModuleRefresher
 
@@ -89,7 +90,7 @@ class ModuleRefresherImpl(
         deferred.remove(name)?.cancel()
         lastRun[name] = now
         scope.launch {
-            try { module() } catch (e: CancellationException) { throw e } catch (_: Exception) { }
+            try { module() } catch (e: CancellationException) { throw e } catch (e: Exception) { MitraLog.warn("MitraSync", "refresh of $name failed", e) }
         }
     }
 

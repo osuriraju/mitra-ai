@@ -10,6 +10,7 @@ import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.IO
+import kotlinx.coroutines.async
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
@@ -27,6 +28,7 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonElement
 import tech.beyondscale.mitra.core.AppError
+import tech.beyondscale.mitra.core.MitraLog
 import tech.beyondscale.mitra.core.Outcome
 import tech.beyondscale.mitra.data.db.MitraDb
 import tech.beyondscale.mitra.data.db.Outbox
@@ -52,7 +54,7 @@ class SyncEngine(
     private val api: ApiClient,
     private val db: MitraDb,
     private val scheduler: SyncScheduler,
-    scope: CoroutineScope,
+    private val scope: CoroutineScope,
     private val io: CoroutineDispatcher = Dispatchers.IO,
     debounceMs: Long = 500,
 ) : SyncController {
@@ -81,7 +83,7 @@ class SyncEngine(
     init {
         scope.launch(start = CoroutineStart.UNDISPATCHED) {
             requests.debounce(debounceMs).collect {
-                try { drain() } catch (e: CancellationException) { throw e } catch (_: Exception) { }
+                try { drain() } catch (e: CancellationException) { throw e } catch (e: Exception) { MitraLog.warn(TAG, "drain failed", e) }
             }
         }
     }
@@ -96,6 +98,13 @@ class SyncEngine(
      * caller retries on its own (the WorkManager job returns `Result.retry()`), so no extra job is chained.
      */
     suspend fun drain(scheduleRetryOnFailure: Boolean = true): Result = mutex.withLock { drainLocked(scheduleRetryOnFailure) }
+
+    /**
+     * [drain] for a background job (WorkManager), retry left to the caller. The drain runs in the engine's scope, so
+     * cancelling the caller — e.g. the periodic job being cancelled because this very drain emptied the outbox — only
+     * stops the wait, never a send or handler midway.
+     */
+    suspend fun drainDetached(): Result = scope.async { drain(scheduleRetryOnFailure = false) }.await()
 
     private suspend fun drainLocked(scheduleRetryOnFailure: Boolean): Result {
         var result: Result? = null
@@ -196,8 +205,11 @@ class SyncEngine(
 
     /** A misbehaving handler must not break the queue; the row outcome already applied stands. */
     private suspend fun safely(block: suspend () -> Unit) {
-        try { block() } catch (e: CancellationException) { throw e } catch (_: Exception) { }
+        try { block() } catch (e: CancellationException) { throw e } catch (e: Exception) { MitraLog.warn(TAG, "sync handler failed", e) }
     }
 
-    private companion object { const val POISON_SERVER_ERRORS = 3 }
+    private companion object {
+        const val POISON_SERVER_ERRORS = 3
+        const val TAG = "MitraSync"
+    }
 }

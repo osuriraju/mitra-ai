@@ -209,4 +209,34 @@ class AuthRepositoryImplTest {
         assertEquals(SessionState.SignedOut, repo.session.value)
         assertNull(db.userQueries.selectCurrent().executeAsOneOrNull())
     }
+
+    private suspend fun TestScope.unauthorizedDuringRefresh(meStatus: HttpStatusCode): AuthRepositoryImpl {
+        seedCachedUser()
+        val release = CompletableDeferred<Unit>()
+        server.routes["GET /api/auth/me"] = {
+            release.await()
+            if (meStatus == HttpStatusCode.OK) json(userJson("u1")) else json(errorJson("UNAVAILABLE", "down"), meStatus)
+        }
+        server.routes["PATCH /api/x"] = { json(errorJson("UNAUTHENTICATED", "Please sign in"), HttpStatusCode.Unauthorized) }
+        val repo = repo()
+        repo.restore(); runCurrent()
+        withContext(Dispatchers.Default) { withTimeout(5.seconds) { while (server.requests.none { it.url.encodedPath == "/api/auth/me" }) delay(10) } }
+        api.send(io.ktor.http.HttpMethod.Patch, "x", null) // another request's 401 lands while the refresh is in flight
+        runCurrent()
+        assertIs<SessionState.SignedIn>(repo.session.value)
+        release.complete(Unit)
+        withContext(Dispatchers.Default) { delay(200) }
+        runCurrent()
+        return repo
+    }
+
+    @Test fun unauthorizedDuringFailedRefreshStillSignsOut() = runTest {
+        val repo = unauthorizedDuringRefresh(HttpStatusCode.ServiceUnavailable)
+        withContext(Dispatchers.Default) { withTimeout(5.seconds) { repo.session.first { it == SessionState.SignedOut } } }
+    }
+
+    @Test fun unauthorizedDuringSuccessfulRefreshIsStale() = runTest {
+        val repo = unauthorizedDuringRefresh(HttpStatusCode.OK)
+        assertIs<SessionState.SignedIn>(repo.session.value)
+    }
 }
