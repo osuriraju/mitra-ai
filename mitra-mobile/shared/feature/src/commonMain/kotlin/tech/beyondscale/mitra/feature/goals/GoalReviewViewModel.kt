@@ -57,6 +57,8 @@ data class ReviewGoalUi(
     val due: String,
     /** "Due 12 Jan 2027" */
     val dueLabel: String,
+    /** Numeric and date goals only: a milestone goal's target is its milestone count, a habit goal's is unused. */
+    val showTarget: Boolean,
 )
 
 data class GoalReviewUiState(
@@ -71,7 +73,11 @@ data class GoalReviewUiState(
     val goals: List<ReviewGoalUi> = emptyList(),
     /** The goal whose Adjust row is open. */
     val adjusting: String? = null,
+    /** The raw typed target: digits, '.' and ',' ("1,20,000"). */
     val adjustTarget: String = "",
+    /** Save is enabled: the field is empty (decision only) or parses to a value > 0. */
+    val adjustValid: Boolean = true,
+    /** Decisions on goals still in the review. */
     val decided: Int = 0,
     /** Finish page: goal name → decision label ("Keep" / "Adjusted" / "Pause" / "No decision"). */
     val summary: List<Pair<String, String>> = emptyList(),
@@ -114,25 +120,47 @@ class GoalReviewViewModel(
 
     fun onAction(a: GoalReviewAction) {
         when (a) {
-            is GoalReviewAction.Decide -> decide(a.goalId, a.decision)
+            is GoalReviewAction.Decide -> {
+                val write = decide(a.goalId, a.decision)
+                viewModelScope.launch { write() }
+            }
             is GoalReviewAction.StartAdjust -> local.update { it.copy(adjusting = a.goalId, adjustTarget = "") }
-            is GoalReviewAction.AdjustTarget -> local.update { it.copy(adjustTarget = a.v.filter { c -> c.isDigit() || c == '.' }) }
+            is GoalReviewAction.AdjustTarget -> local.update { it.copy(adjustTarget = a.v.filter { c -> c.isDigit() || c == '.' || c == ',' }) }
             is GoalReviewAction.AdjustDue -> viewModelScope.launch { goals.update(a.goalId, listOf(GoalChange.Due(a.iso))) }
             is GoalReviewAction.SaveAdjust -> {
-                val target = local.value.adjustTarget.toDoubleOrNull()
+                val raw = local.value.adjustTarget
+                if (!targetValid(raw)) return
+                val target = parseTarget(raw)
                 local.update { it.copy(adjusting = null, adjustTarget = "") }
+                val resume = decide(a.goalId, Decision.Adjusted)
+                // One coroutine so a resume (State(Active)) always reaches the outbox before the target.
                 viewModelScope.launch {
-                    if (target != null) goals.update(a.goalId, listOf(GoalChange.Target(target)))
+                    resume()
+                    val g = goals.goals.first().firstOrNull { it.id == a.goalId }
+                    if (target != null && g != null && g.type.hasTarget()) goals.update(a.goalId, listOf(GoalChange.Target(target)))
                 }
-                decide(a.goalId, Decision.Adjusted)
             }
             GoalReviewAction.Finish -> finish()
         }
     }
 
-    private fun decide(goalId: String, d: Decision) {
+    /** Records [d] and returns its write: Pause pauses; a later Keep/Adjust on a goal paused here resumes it. */
+    private fun decide(goalId: String, d: Decision): suspend () -> Unit {
+        val previous = local.value.decisions[goalId]
         local.update { it.copy(decisions = it.decisions + (goalId to d)) }
-        if (d == Decision.Pause) viewModelScope.launch { goals.update(goalId, listOf(GoalChange.State(GoalState.Paused))) }
+        return when {
+            d == Decision.Pause && previous != Decision.Pause -> {
+                { goals.update(goalId, listOf(GoalChange.State(GoalState.Paused))) }
+            }
+            // Paused earlier in this review and now kept/adjusted: resume it so Finish moves its review date.
+            d != Decision.Pause && previous == Decision.Pause -> {
+                {
+                    val g = goals.goals.first().firstOrNull { it.id == goalId }
+                    if (g?.state == GoalState.Paused) goals.update(goalId, listOf(GoalChange.State(GoalState.Active)))
+                }
+            }
+            else -> { {} }
+        }
     }
 
     private fun finish() {
@@ -146,7 +174,7 @@ class GoalReviewViewModel(
                 val g = now[id] ?: continue
                 if (g.state == GoalState.Active) goals.update(id, listOf(GoalChange.ReviewOn(addDays(today, g.reviewEvery.days))))
             }
-            val n = local.value.decisions.size
+            val n = local.value.decisions.keys.count { it in ids && it in now }
             queue.send(UiEvent.Snack("Review done · $n decision${if (n == 1) "" else "s"} recorded"))
             queue.send(UiEvent.Close)
         }
@@ -173,11 +201,13 @@ class GoalReviewViewModel(
                     decision = l.decisions[g.id],
                     targetPlaceholder = jsNum(g.target), targetSuffix = g.unit.ifEmpty { "target" },
                     due = g.due, dueLabel = "Due ${fmtShort(g.due)} ${g.due.take(4)}",
+                    showTarget = g.type.hasTarget(),
                 )
             },
             adjusting = l.adjusting,
             adjustTarget = l.adjustTarget,
-            decided = l.decisions.size,
+            adjustValid = targetValid(l.adjustTarget),
+            decided = reviewed.count { it.id in l.decisions },
             summary = reviewed.map { it.name to (l.decisions[it.id]?.label ?: "No decision") },
         )
     }
@@ -197,4 +227,24 @@ fun reviewDelta(g: Goal, habits: List<Habit>, today: String): String {
     }
     val last = g.progressLog.lastOrNull()
     return "${goalProgress(g, habits, today)}% · " + if (last != null) "last logged ${fmtDay(last.date, today)}" else "nothing logged yet"
+}
+
+private fun GoalType.hasTarget(): Boolean = this == GoalType.Numeric || this == GoalType.Date
+
+/** Empty means "no new target" (the decision alone is recorded); anything typed must parse to more than 0. */
+private fun targetValid(raw: String): Boolean = raw.isEmpty() || (parseTarget(raw)?.let { it > 0 } ?: false)
+
+/**
+ * The review's target field: commas are grouping separators ("1,20,000" / "1,000") unless the input has no '.' and a
+ * single comma followed by 1–2 digits at the end ("12,5" → 12.5) — a group always ends in three digits, so that comma
+ * can only be a decimal separator. Null when nothing numeric is left.
+ */
+fun parseTarget(raw: String): Double? {
+    val s = raw.trim()
+    if (s.isEmpty()) return null
+    val commas = s.count { it == ',' }
+    val decimalComma = '.' !in s && commas == 1 && s.substringAfter(',').length in 1..2 && s.substringBefore(',').isNotEmpty()
+    val normalised = if (decimalComma) s.replace(',', '.') else s.replace(",", "")
+    if (normalised.isEmpty() || normalised.count { it == '.' } > 1 || normalised.any { !it.isDigit() && it != '.' }) return null
+    return normalised.toDoubleOrNull()
 }

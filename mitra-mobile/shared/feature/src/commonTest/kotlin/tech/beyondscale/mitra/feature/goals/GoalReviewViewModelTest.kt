@@ -26,6 +26,7 @@ import tech.beyondscale.mitra.testing.FixedClock
 import tech.beyondscale.mitra.testing.ViewModelTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import kotlin.time.Instant
 
@@ -162,7 +163,8 @@ class GoalReviewViewModelTest : ViewModelTest() {
         runCurrent()
         assertEquals("A", h.state.adjusting)
         h.vm.onAction(GoalReviewAction.AdjustTarget("1,20,000x"))
-        assertEquals("120000", h.state.adjustTarget)
+        assertEquals("1,20,000", h.state.adjustTarget)
+        assertTrue(h.state.adjustValid)
         h.vm.onAction(GoalReviewAction.AdjustDue("A", "2027-06-30"))
         h.vm.onAction(GoalReviewAction.SaveAdjust("A"))
         runCurrent()
@@ -185,6 +187,105 @@ class GoalReviewViewModelTest : ViewModelTest() {
         runCurrent()
         assertEquals(emptyList(), h.repo.updates)
         assertEquals(Decision.Adjusted, h.state.goals[0].decision)
+    }
+
+    @Test fun pauseThenKeepReactivatesAndFinishIncludesIt() = runTest {
+        val h = harness(goal("A"), goal("B"))
+        h.vm.onAction(GoalReviewAction.Decide("B", Decision.Pause))
+        h.vm.onAction(GoalReviewAction.Decide("B", Decision.Keep))
+        runCurrent()
+        assertEquals(
+            listOf(
+                "B" to listOf<GoalChange>(GoalChange.State(GoalState.Paused)),
+                "B" to listOf<GoalChange>(GoalChange.State(GoalState.Active)),
+            ),
+            h.repo.updates,
+        )
+        assertEquals(2, h.state.onTrack)
+        h.vm.onAction(GoalReviewAction.Finish)
+        runCurrent()
+        assertEquals(listOf("A", "B"), h.repo.updates.drop(2).map { it.first })
+        assertEquals(GoalChange.ReviewOn("2026-11-13"), h.repo.updates.last().second.single())
+    }
+
+    @Test fun pauseThenAdjustReactivatesBeforeTarget() = runTest {
+        val h = harness(goal("B"))
+        h.vm.onAction(GoalReviewAction.Decide("B", Decision.Pause))
+        h.vm.onAction(GoalReviewAction.StartAdjust("B"))
+        h.vm.onAction(GoalReviewAction.AdjustTarget("150"))
+        h.vm.onAction(GoalReviewAction.SaveAdjust("B"))
+        runCurrent()
+        assertEquals(
+            listOf<GoalChange>(GoalChange.State(GoalState.Paused), GoalChange.State(GoalState.Active), GoalChange.Target(150.0)),
+            h.repo.updates.map { it.second.single() },
+        )
+    }
+
+    @Test fun decimalInputParsesGroupingAndDecimalComma() = runTest {
+        assertEquals(120000.0, parseTarget("1,20,000"))
+        assertEquals(1000.0, parseTarget("1,000"))
+        assertEquals(1234567.5, parseTarget("12,34,567.5"))
+        assertEquals(12.5, parseTarget("12,5"))
+        assertEquals(1.25, parseTarget("1,25"))
+        assertEquals(null, parseTarget("1.2.3"))
+        assertEquals(null, parseTarget(","))
+        assertEquals(null, parseTarget(""))
+
+        val h = harness(goal("A"))
+        h.vm.onAction(GoalReviewAction.StartAdjust("A"))
+        h.vm.onAction(GoalReviewAction.AdjustTarget("12,5"))
+        assertTrue(h.state.adjustValid)
+        h.vm.onAction(GoalReviewAction.AdjustTarget("0"))
+        assertFalse(h.state.adjustValid)
+        h.vm.onAction(GoalReviewAction.SaveAdjust("A"))
+        runCurrent()
+        assertEquals(emptyList(), h.repo.updates)
+        assertEquals(null, h.state.goals[0].decision)
+        assertEquals("A", h.state.adjusting)
+        h.vm.onAction(GoalReviewAction.AdjustTarget("1.2.3"))
+        assertFalse(h.state.adjustValid)
+        h.vm.onAction(GoalReviewAction.AdjustTarget(""))
+        assertTrue(h.state.adjustValid)
+        h.vm.onAction(GoalReviewAction.AdjustTarget("12,5"))
+        h.vm.onAction(GoalReviewAction.SaveAdjust("A"))
+        runCurrent()
+        assertEquals(listOf("A" to listOf<GoalChange>(GoalChange.Target(12.5))), h.repo.updates)
+    }
+
+    @Test fun milestoneAndHabitGoalsHideTheTarget() = runTest {
+        val h = harness(
+            goal("n"),
+            goal("d", type = GoalType.Date),
+            goal("m", type = GoalType.Milestone, milestones = listOf(Milestone("a", "A"))),
+            goal("h", type = GoalType.Habit),
+        )
+        assertEquals(listOf(true, true, false, false), h.state.goals.map { it.showTarget })
+        h.vm.onAction(GoalReviewAction.StartAdjust("m"))
+        h.vm.onAction(GoalReviewAction.AdjustTarget("9"))
+        h.vm.onAction(GoalReviewAction.SaveAdjust("m"))
+        runCurrent()
+        assertEquals(emptyList(), h.repo.updates)
+        assertEquals(Decision.Adjusted, h.state.goals[2].decision)
+    }
+
+    @Test fun decisionsForVanishedGoalsAreNotCounted() = runTest {
+        val repo = FakeGoalsRepository(listOf(goal("A"), goal("B")), clock)
+        val vm = GoalReviewViewModel(repo, FakeHabitsRepository(), clock)
+        val d = UnconfinedTestDispatcher(testScheduler)
+        backgroundScope.launch(d) { vm.state.collect {} }
+        val events = mutableListOf<UiEvent<GoalReviewAction>>()
+        backgroundScope.launch(d) { vm.events.toList(events) }
+        runCurrent()
+        vm.onAction(GoalReviewAction.Decide("A", Decision.Keep))
+        vm.onAction(GoalReviewAction.Decide("B", Decision.Keep))
+        vm.onAction(GoalReviewAction.Decide("ghost", Decision.Keep))
+        repo.delete("B")
+        runCurrent()
+        assertEquals(1, vm.state.value.decided)
+        assertEquals(listOf("Goal A" to "Keep"), vm.state.value.summary)
+        vm.onAction(GoalReviewAction.Finish)
+        runCurrent()
+        assertEquals(listOf("Review done · 1 decision recorded"), events.filterIsInstance<UiEvent.Snack<GoalReviewAction>>().map { it.text })
     }
 
     @Test fun finishSnackCountsDecisions() = runTest {

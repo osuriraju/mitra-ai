@@ -21,16 +21,25 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
@@ -86,11 +95,12 @@ fun GoalReviewScreen(state: GoalReviewUiState, onAction: (GoalReviewAction) -> U
                 verticalArrangement = Arrangement.spacedBy(MitraDimens.gap),
             ) {
                 when {
-                    page == 0 -> TrajectoryPage(state, onStart = { next(0) })
+                    page == 0 -> TrajectoryPage(state, onStart = { next(0) }, onFinish = { onAction(GoalReviewAction.Finish) })
                     page <= state.goals.size -> GoalPage(
                         g = state.goals[page - 1],
                         adjusting = state.adjusting == state.goals[page - 1].id,
                         adjustTarget = state.adjustTarget,
+                        adjustValid = state.adjustValid,
                         onAction = onAction,
                         onDecided = { next(page) },
                     )
@@ -123,10 +133,10 @@ private fun PageDots(pager: PagerState, count: Int, modifier: Modifier) {
 }
 
 @Composable
-private fun TrajectoryPage(state: GoalReviewUiState, onStart: () -> Unit) {
+private fun TrajectoryPage(state: GoalReviewUiState, onStart: () -> Unit, onFinish: () -> Unit) {
     val c = Mitra.colors
     MitraCard {
-        Eyebrow("Trajectory")
+        Eyebrow("Trajectory", Modifier.semantics { heading() })
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
             TrajectoryStat(state.onTrack, "on track", c.success, Modifier.weight(1f))
             TrajectoryStat(state.behind, "behind", c.warning, Modifier.weight(1f))
@@ -136,6 +146,7 @@ private fun TrajectoryPage(state: GoalReviewUiState, onStart: () -> Unit) {
     }
     if (state.goals.isEmpty()) {
         MitraCard { EmptyState(MitraIcons.Target, "No active goals to review", "") }
+        MitraButton("Finish review", onClick = onFinish, modifier = Modifier.fillMaxWidth(), size = ButtonSize.Lg)
     } else {
         Text("Swipe through each goal and decide: keep it, adjust the target, or pause it.", style = Mitra.type.sm, color = c.muted)
         MitraButton("Start", onClick = onStart, modifier = Modifier.fillMaxWidth(), kind = ButtonKind.Soft)
@@ -155,45 +166,73 @@ private fun GoalPage(
     g: ReviewGoalUi,
     adjusting: Boolean,
     adjustTarget: String,
+    adjustValid: Boolean,
     onAction: (GoalReviewAction) -> Unit,
     onDecided: () -> Unit,
 ) {
     val c = Mitra.colors
     var picking by rememberSaveable(g.id) { mutableStateOf(false) }
+    val focus = remember { FocusRequester() }
+    val focusManager = LocalFocusManager.current
+    LaunchedEffect(adjusting) { if (adjusting && g.showTarget) focus.requestFocus() }
     MitraCard(Modifier.alpha(if (g.decision != null) 0.75f else 1f)) {
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             Ring(g.pct, size = 48.dp, stroke = 5.dp, label = g.ringLabel, tone = g.ringTone.toTone())
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(g.name, Modifier.weight(1f), style = Mitra.type.bodyBold, color = c.text)
+                    Text(g.name, Modifier.weight(1f).semantics { heading() }, style = Mitra.type.bodyBold, color = c.text)
                     g.decision?.let { MitraChip(it.label, tone = it.chipTone()) }
                 }
                 Text(g.line, style = Mitra.type.sm, color = c.muted)
             }
         }
         if (adjusting) {
-            MitraTextField(
-                value = adjustTarget,
-                onValueChange = { onAction(GoalReviewAction.AdjustTarget(it)) },
-                label = "New target (${g.targetSuffix})",
-                placeholder = g.targetPlaceholder,
-                keyboardType = KeyboardType.Decimal,
-                imeAction = ImeAction.Done,
-            )
+            val save = {
+                if (adjustValid) {
+                    focusManager.clearFocus()
+                    onAction(GoalReviewAction.SaveAdjust(g.id))
+                    onDecided()
+                }
+            }
+            if (g.showTarget) {
+                MitraTextField(
+                    value = adjustTarget,
+                    onValueChange = { onAction(GoalReviewAction.AdjustTarget(it)) },
+                    label = "New target (${g.targetSuffix})",
+                    placeholder = g.targetPlaceholder,
+                    keyboardType = KeyboardType.Decimal,
+                    imeAction = ImeAction.Done,
+                    onImeAction = save,
+                    fieldModifier = Modifier.focusRequester(focus),
+                    error = if (adjustValid) null else "Enter a target above 0",
+                )
+            }
             MitraButton(g.dueLabel, onClick = { picking = true }, modifier = Modifier.fillMaxWidth(), kind = ButtonKind.Outline, icon = MitraIcons.Calendar)
-            MitraButton("Save", onClick = { onAction(GoalReviewAction.SaveAdjust(g.id)); onDecided() }, modifier = Modifier.fillMaxWidth())
+            MitraButton("Save", onClick = save, modifier = Modifier.fillMaxWidth(), enabled = adjustValid)
         } else {
             FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 MitraButton(
                     "Keep",
                     onClick = { onAction(GoalReviewAction.Decide(g.id, Decision.Keep)); onDecided() },
+                    modifier = Modifier.decisionState(g.decision == Decision.Keep),
                     kind = if (g.decision == Decision.Keep) ButtonKind.Primary else ButtonKind.Soft,
                 )
-                MitraButton("Adjust target", onClick = { onAction(GoalReviewAction.StartAdjust(g.id)) }, kind = ButtonKind.Outline)
-                MitraButton("Pause", onClick = { onAction(GoalReviewAction.Decide(g.id, Decision.Pause)); onDecided() }, kind = ButtonKind.Ghost)
+                MitraButton(
+                    "Adjust target",
+                    onClick = { onAction(GoalReviewAction.StartAdjust(g.id)) },
+                    modifier = Modifier.decisionState(g.decision == Decision.Adjusted),
+                    kind = ButtonKind.Outline,
+                )
+                MitraButton(
+                    "Pause",
+                    onClick = { onAction(GoalReviewAction.Decide(g.id, Decision.Pause)); onDecided() },
+                    modifier = Modifier.decisionState(g.decision == Decision.Pause),
+                    kind = ButtonKind.Ghost,
+                )
             }
         }
     }
+    MitraButton("Skip", onClick = onDecided, modifier = Modifier.fillMaxWidth(), kind = ButtonKind.Ghost)
     if (picking) {
         MitraDatePickerDialog(g.due, onPick = { onAction(GoalReviewAction.AdjustDue(g.id, it)) }, onDismiss = { picking = false })
     }
@@ -203,7 +242,7 @@ private fun GoalPage(
 private fun FinishPage(state: GoalReviewUiState, onFinish: () -> Unit) {
     val c = Mitra.colors
     MitraCard {
-        Eyebrow("Decisions")
+        Eyebrow("Decisions", Modifier.semantics { heading() })
         if (state.summary.isEmpty()) {
             Text("No active goals to review", style = Mitra.type.body, color = c.muted)
         }
@@ -216,6 +255,12 @@ private fun FinishPage(state: GoalReviewUiState, onFinish: () -> Unit) {
         }
     }
     MitraButton("Finish review", onClick = onFinish, modifier = Modifier.fillMaxWidth(), size = ButtonSize.Lg)
+}
+
+/** Spoken state of a decision button: selected + "Chosen" for the current decision. */
+private fun Modifier.decisionState(chosen: Boolean): Modifier = semantics {
+    selected = chosen
+    stateDescription = if (chosen) "Chosen" else "Not chosen"
 }
 
 private fun StatusTone.toTone(): Tone = when (this) {
