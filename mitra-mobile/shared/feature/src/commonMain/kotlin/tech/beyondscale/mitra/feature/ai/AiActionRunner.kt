@@ -1,6 +1,12 @@
 package tech.beyondscale.mitra.feature.ai
 
 import kotlinx.coroutines.flow.first
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import tech.beyondscale.mitra.core.AppClock
 import tech.beyondscale.mitra.core.jsRound
 import tech.beyondscale.mitra.core.localNow
@@ -159,61 +165,18 @@ class AiActionRunner(
     }
 
     private fun patch(vararg kv: Pair<String, String?>): String =
-        kv.joinToString(",", "{", "}") { (k, v) -> "\"$k\":" + (v?.let(::quote) ?: "null") }
+        JsonObject(kv.associate { (k, v) -> k to JsonPrimitive(v) }).toString()
 
     /** Web `budget` is rupees. */
-    private fun budgetPatch(paise: Long?): String = "{\"budget\":${paise?.let { (it / 100.0).toString() } ?: "null"}}"
-}
-
-private fun quote(s: String): String = buildString {
-    append('"')
-    s.forEach { ch ->
-        when (ch) {
-            '"' -> append("\\\""); '\\' -> append("\\\\"); '\n' -> append("\\n"); '\r' -> append("\\r"); '\t' -> append("\\t")
-            else -> if (ch < ' ') append("\\u" + ch.code.toString(16).padStart(4, '0')) else append(ch)
-        }
-    }
-    append('"')
+    private fun budgetPatch(paise: Long?): String = buildJsonObject { put("budget", paise?.let { it / 100.0 }) }.toString()
 }
 
 /**
- * A revert `patch` as key → raw value (strings unquoted, `null` → null, numbers/booleans as text). The feature module
- * has no JSON library; patches are flat objects of scalars. Anything unreadable is an empty map.
+ * A revert `patch` as key → raw value (strings unquoted, `null` → null, numbers/booleans as text); patches are flat
+ * objects of scalars. Anything unreadable is an empty map.
  */
 internal fun parseFlatPatch(json: String?): Map<String, String?> {
     if (json == null) return emptyMap()
-    val out = linkedMapOf<String, String?>()
-    var i = 0
-    fun ws() { while (i < json.length && json[i].isWhitespace()) i++ }
-    fun str(): String {
-        val sb = StringBuilder(); i++ // opening quote
-        while (i < json.length && json[i] != '"') {
-            if (json[i] == '\\' && i + 1 < json.length) {
-                i++
-                when (val e = json[i]) {
-                    'n' -> sb.append('\n'); 't' -> sb.append('\t'); 'r' -> sb.append('\r')
-                    'u' -> { sb.append(json.substring(i + 1, i + 5).toInt(16).toChar()); i += 4 }
-                    else -> sb.append(e)
-                }
-            } else sb.append(json[i])
-            i++
-        }
-        i++
-        return sb.toString()
-    }
-    return runCatching {
-        ws(); if (json[i] != '{') return emptyMap(); i++
-        while (true) {
-            ws(); if (json[i] == '}') break
-            val key = str(); ws(); i++ /* : */; ws()
-            val value = if (json[i] == '"') str() else {
-                val start = i
-                while (i < json.length && json[i] != ',' && json[i] != '}') i++
-                json.substring(start, i).trim().takeIf { it != "null" }
-            }
-            out[key] = value
-            ws(); if (json[i] == ',') i++
-        }
-        out
-    }.getOrDefault(emptyMap())
+    val obj = runCatching { Json.parseToJsonElement(json) as? JsonObject }.getOrNull() ?: return emptyMap()
+    return obj.mapValues { (_, v) -> (v as? JsonPrimitive)?.takeUnless { it is JsonNull }?.content }
 }

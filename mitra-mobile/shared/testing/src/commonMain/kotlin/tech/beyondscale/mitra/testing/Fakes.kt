@@ -45,6 +45,8 @@ class FakeAuthRepository(initial: SessionState = SessionState.SignedOut) : AuthR
 class FakeSettingsRepository : SettingsRepository {
     val updates = mutableListOf<Pair<ModuleKey, Boolean>>()
     override suspend fun setModule(key: ModuleKey, enabled: Boolean) { updates += key to enabled }
+    val shareWellness = mutableListOf<Boolean>()
+    override suspend fun setShareWellness(enabled: Boolean) { shareWellness += enabled }
 }
 
 class FakePreferencesRepository : PreferencesRepository {

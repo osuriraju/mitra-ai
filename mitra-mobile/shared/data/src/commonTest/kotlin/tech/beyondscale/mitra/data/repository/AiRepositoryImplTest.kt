@@ -98,7 +98,7 @@ class AiRepositoryImplTest {
         var sent: String? = null
         server.routes["POST /api/ai/actions"] = { req ->
             sent = req.body.toByteArray().decodeToString()
-            val id = bodyOf(sent!!)["id"]!!.jsonPrimitive.content
+            val id = bodyOf(sent)["id"]!!.jsonPrimitive.content
             json(actionJson(id))
         }
         val logged = e.repo.logAction(

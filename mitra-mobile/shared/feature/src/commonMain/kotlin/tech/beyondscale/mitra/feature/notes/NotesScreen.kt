@@ -55,11 +55,13 @@ fun NotesRoute(
     onJournal: () -> Unit,
     /** Extra top-bar actions (the shell passes its sync pill and avatar). */
     topBarActions: @Composable RowScope.() -> Unit = {},
+    /** A note just created from the form (the shell opens it straight into writing). */
+    onNoteCreated: (String) -> Unit = onOpenNote,
     vm: NotesViewModel = koinViewModel(),
 ) {
     val state by vm.state.collectAsStateWithLifecycle()
     EventEffect(vm.events, vm::onAction)
-    LaunchedEffect(vm) { vm.openNote.collect { onOpenNote(it) } }
+    LaunchedEffect(vm) { vm.openNote.collect { onNoteCreated(it) } }
     NotesScreen(state, vm::onAction, onOpenNote, onSearch, onJournal, topBarActions)
 }
 

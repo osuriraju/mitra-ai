@@ -15,6 +15,7 @@ import tech.beyondscale.mitra.data.db.MitraDb
 import tech.beyondscale.mitra.data.local.PrefKeys
 import tech.beyondscale.mitra.data.local.PrefStore
 import tech.beyondscale.mitra.data.local.UserCache
+import tech.beyondscale.mitra.data.remote.UserDto
 import tech.beyondscale.mitra.data.remote.UserEnvelope
 import tech.beyondscale.mitra.data.remote.toDomain
 import tech.beyondscale.mitra.data.sync.OutboxEntities
@@ -54,15 +55,22 @@ class SettingsRepositoryImpl(
         })
     }
 
-    override suspend fun setModule(key: ModuleKey, enabled: Boolean) {
+    override suspend fun setModule(key: ModuleKey, enabled: Boolean) = patch { dto ->
+        val modules = dto.toDomain(json).settings.modules.with(key, enabled)
+        // The server merges settings shallowly, so the whole `modules` object is sent.
+        buildJsonObject {
+            putJsonObject("modules") { put("money", modules.money); put("wellness", modules.wellness); put("ai", modules.ai) }
+        }
+    }
+
+    override suspend fun setShareWellness(enabled: Boolean) = patch { buildJsonObject { put("shareWellness", enabled) } }
+
+    /** Applies [build]'s patch to the cached user and queues it (coalesced with any queued settings PATCH). */
+    private suspend fun patch(build: (UserDto) -> JsonObject) {
         withContext(io) {
             db.transaction {
                 val dto = cache.current() ?: return@transaction
-                val modules = dto.toDomain(json).settings.modules.with(key, enabled)
-                // The server merges settings shallowly, so the whole `modules` object is sent.
-                val patch = buildJsonObject {
-                    putJsonObject("modules") { put("money", modules.money); put("wellness", modules.wellness); put("ai", modules.ai) }
-                }
+                val patch = build(dto)
                 cache.put(dto.copy(settings = JsonObject(dto.settings + patch)))
                 outbox.enqueue(ENTITY, "PATCH", "users/me/settings", patch, coalesceKey = ENTITY)
             }

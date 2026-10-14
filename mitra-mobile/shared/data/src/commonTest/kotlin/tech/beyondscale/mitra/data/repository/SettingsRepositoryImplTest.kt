@@ -133,4 +133,17 @@ class SettingsRepositoryImplTest {
         val row = db.outboxQueries.selectAll().executeAsList().single()
         assertEquals("""{"modules":{"money":false,"wellness":true,"ai":false}}""", row.body)
     }
+
+    @Test fun shareWellnessMergesWithAQueuedModuleToggle() = runTest {
+        server.offline = true
+        val e = env()
+        e.auth.restore(); runCurrent()
+        e.settings.setModule(ModuleKey.Ai, false)
+        e.settings.setShareWellness(true)
+
+        val cached = assertNotNull(UserCache(db, api.json, UnconfinedTestDispatcher(testScheduler)).current())
+        assertEquals(true, cached.toDomain(api.json).settings.shareWellness)
+        val row = db.outboxQueries.selectAll().executeAsList().single()
+        assertEquals("""{"modules":{"money":true,"wellness":true,"ai":false},"shareWellness":true}""", row.body)
+    }
 }

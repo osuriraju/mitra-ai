@@ -46,6 +46,7 @@ import tech.beyondscale.mitra.designsystem.theme.MitraDimens
 
 import tech.beyondscale.mitra.feature.common.EventEffect
 import tech.beyondscale.mitra.feature.tasks.TaskRow
+import tech.beyondscale.mitra.feature.wellness.MoodRow
 @Composable
 fun TodayRoute(
     onOpenTasks: () -> Unit = {},
@@ -58,6 +59,7 @@ fun TodayRoute(
     onAddHabit: () -> Unit = {},
     onOpenGoals: () -> Unit = {},
     onOpenGoal: (String) -> Unit = {},
+    onOpenCheckin: () -> Unit = {},
     vm: TodayViewModel = koinViewModel(),
 ) {
     val state by vm.state.collectAsStateWithLifecycle()
@@ -73,6 +75,7 @@ fun TodayRoute(
                 TodayAction.AddHabit -> onAddHabit()
                 TodayAction.OpenGoals -> onOpenGoals()
                 is TodayAction.OpenGoal -> onOpenGoal(a.id)
+                TodayAction.OpenCheckin -> onOpenCheckin()
                 else -> vm.onAction(a)
             }
         },
@@ -144,6 +147,13 @@ fun TodayScreen(
                     MoneyCard(m, onAction)
                 }
                 "goals" -> state.goals?.let { GoalsSection(it, onAction) }
+                "checkin" -> {
+                    SectionTitle("Check-in", "Full check-in", "Open the check-in") { onAction(TodayAction.OpenCheckin) }
+                    MitraCard(Modifier.padding(horizontal = MitraDimens.pad)) {
+                        Text("How are you feeling today?", style = Mitra.type.sm.copy(fontWeight = FontWeight.SemiBold), color = Mitra.colors.muted)
+                        MoodRow(state.mood, { onAction(TodayAction.Mood(it)) }, Modifier.padding(top = 8.dp))
+                    }
+                }
             }
         }
     }

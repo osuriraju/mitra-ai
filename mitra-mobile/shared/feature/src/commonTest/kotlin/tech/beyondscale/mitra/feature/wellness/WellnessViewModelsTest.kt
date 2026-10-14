@@ -144,7 +144,7 @@ class WellnessViewModelsTest : ViewModelTest() {
         assertEquals(30, s.sleepValues!!.size)
         assertEquals(14, s.steps.size)
         assertEquals(listOf("1", "13", ""), listOf(s.stepsLabels[0], s.stepsLabels[12], s.stepsLabels[13]))
-        assertEquals(listOf(79.0, 70.0), listOf(s.weights!!.first(), s.weights!!.last()))
+        assertEquals(listOf(79.0, 70.0), listOf(s.weights!!.first(), s.weights.last()))
         assertEquals(10, s.moodColumns)
         assertEquals("Sleep · last 30 nights", s.sleepTitle)
 

@@ -250,7 +250,7 @@ class GoalsRepositoryImplTest {
         val body = api.json.parseToJsonElement(row.body!!).jsonObject
         assertEquals(listOf("id", "value", "note", "date"), body.keys.toList())
         assertTrue(uuidV4.matches(body["id"]!!.jsonPrimitive.content), row.body)
-        assertTrue(row.body!!.endsWith(""""value":8000.0,"note":null,"date":"2026-11-01"}"""), row.body)
+        assertTrue(row.body.endsWith(""""value":8000.0,"note":null,"date":"2026-11-01"}"""), row.body)
     }
 
     @Test fun echoEqualsLocalApplication() = runTest {

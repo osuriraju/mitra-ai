@@ -57,6 +57,11 @@ import tech.beyondscale.mitra.domain.repository.GoalsRepository
 import tech.beyondscale.mitra.domain.repository.HabitsRepository
 import tech.beyondscale.mitra.domain.repository.MoneyRepository
 import tech.beyondscale.mitra.domain.repository.TasksRepository
+import tech.beyondscale.mitra.domain.repository.WellnessRepository
+import tech.beyondscale.mitra.domain.model.MOODS
+import tech.beyondscale.mitra.domain.model.WellnessChange
+import tech.beyondscale.mitra.domain.model.WellnessEntry
+import tech.beyondscale.mitra.domain.model.WellnessSettings
 import tech.beyondscale.mitra.domain.tasks.doneMin
 import tech.beyondscale.mitra.domain.tasks.doneToday
 import tech.beyondscale.mitra.domain.tasks.isOverdue
@@ -106,8 +111,8 @@ data class TodayGoalUi(
     val statusTone: StatusTone,
 )
 
-/** Section ids the app renders, in `settings.todaySections` order (`activity` / `checkin` arrive later). */
-private val BUILT_SECTIONS = setOf("priorities", "habits", "money", "goals")
+/** Section ids the app renders, in `settings.todaySections` order (`activity` arrives later). */
+private val BUILT_SECTIONS = setOf("priorities", "habits", "checkin", "money", "goals")
 
 data class TodayUiState(
     val dateLine: String,
@@ -123,6 +128,8 @@ data class TodayUiState(
     val habits: List<HabitRowUi>? = null,
     /** Top two active goals, not-on-track first; null when the "goals" section is off. */
     val goals: List<TodayGoalUi>? = null,
+    /** Today's mood (MOODS index) for the check-in card; the section shows only with Wellness on and `showOnToday`. */
+    val mood: Int? = null,
     /** Render order of the sections that are on and built. */
     val sections: List<String> = emptyList(),
 )
@@ -141,6 +148,9 @@ sealed interface TodayAction {
     data object AddHabit : TodayAction
     data object OpenHabits : TodayAction
     data object OpenGoals : TodayAction
+    /** Mood picked on the check-in card (tapping today's mood clears it). */
+    data class Mood(val v: Int) : TodayAction
+    data object OpenCheckin : TodayAction
 }
 
 /** Logs a habit check for [today] with the Habits screen's haptics and snackbar ([undo] builds the Undo action). */
@@ -164,6 +174,7 @@ class TodayViewModel(
     private val habits: HabitsRepository,
     goals: GoalsRepository,
     private val clock: AppClock,
+    private val wellness: WellnessRepository,
 ) : ViewModel() {
     private val queue = EventQueue<TodayAction>()
     val events: Flow<UiEvent<TodayAction>> = queue.events
@@ -176,7 +187,12 @@ class TodayViewModel(
     )
 
     private class Inputs(val session: SessionState, val tasks: List<Task>, val projects: List<Project>, val money: MoneyData, val hg: HabitsGoals)
-    private data class HabitsGoals(val habits: List<Habit> = emptyList(), val goals: List<Goal> = emptyList())
+    private data class HabitsGoals(
+        val habits: List<Habit> = emptyList(),
+        val goals: List<Goal> = emptyList(),
+        val wellness: Map<String, WellnessEntry> = emptyMap(),
+        val wellnessSettings: WellnessSettings = WellnessSettings(),
+    )
 
     private val moneyData: Flow<MoneyData> =
         combine(money.categories, money.transactions, money.recurring, money.subscriptions, ::MoneyData)
@@ -184,7 +200,7 @@ class TodayViewModel(
     val state: StateFlow<TodayUiState> =
         combine(
             combine(auth.session, minuteTicker(), tasks.tasks, tasks.projects, moneyData) { session, _, all, projects, m -> Inputs(session, all, projects, m, HabitsGoals()) },
-            combine(habits.habits, goals.goals, ::HabitsGoals),
+            combine(habits.habits, goals.goals, wellness.entries, wellness.settings, ::HabitsGoals),
         ) { i, hg -> Inputs(i.session, i.tasks, i.projects, i.money, hg) }
             .combine(clock.dayFlow()) { i, today -> buildFrom(i.session, Unit, i.tasks, i.projects, i.money, i.hg, today) }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), buildFrom(auth.session.value, Unit, emptyList(), emptyList(), MoneyData(), HabitsGoals(), clock.today()))
@@ -200,6 +216,13 @@ class TodayViewModel(
                 queue.checkHabit(habits, a.id, clock.today()) { id, date, v -> TodayAction.SetHabitLog(id, date, v) }
             }
             is TodayAction.SetHabitLog -> viewModelScope.launch { habits.setLog(a.id, a.date, a.value) }
+            is TodayAction.Mood -> viewModelScope.launch {
+                val today = clock.today()
+                val v = a.v.takeIf { it != state.value.mood }
+                wellness.saveEntry(today, listOf(WellnessChange.Mood(v)))
+                queue.send(UiEvent.Snack(if (v == null) "Mood cleared" else "Mood logged ${MOODS[v]}"))
+            }
+            TodayAction.OpenCheckin,
             TodayAction.AddExpense, TodayAction.OpenBudgets, TodayAction.AddHabit, TodayAction.OpenHabits, TodayAction.OpenGoals,
             is TodayAction.OpenHabit, is TodayAction.OpenGoal,
             -> Unit // handled by the shell (navigation)
@@ -237,8 +260,9 @@ class TodayViewModel(
         val monthSpent = spent(thisMonth(m.txs, monthKey(today)))
         val pct = budgetPct(monthSpent, card.budgetPaise)
         val moneyOn = user?.settings?.modules?.money ?: true
+        val checkinOn = (user?.settings?.modules?.wellness ?: true) && hg.wellnessSettings.showOnToday
         val sections = (user?.settings?.todaySections ?: Settings.DEFAULT_TODAY_SECTIONS)
-            .filter { it in BUILT_SECTIONS && (it != "money" || moneyOn) }.distinct()
+            .filter { it in BUILT_SECTIONS && (it != "money" || moneyOn) && (it != "checkin" || checkinOn) }.distinct()
         val showMoney = "money" in sections
         val due = habitsDueToday(hg.habits, today)
         val habitsDone = habitsDoneToday(hg.habits, today).size
@@ -255,6 +279,7 @@ class TodayViewModel(
             showPriorities = "priorities" in sections,
             habits = if ("habits" in sections) due.map { habitRowUi(it, today) } else null,
             goals = if ("goals" in sections) todayGoals(hg.goals, hg.habits, today) else null,
+            mood = hg.wellness[today]?.mood,
             sections = sections,
             prioritiesFooter = "All ${open + overdue + done} tasks for today",
             prioritiesMeta = "$done done" + if (overdue > 0) " · $overdue overdue" else "",

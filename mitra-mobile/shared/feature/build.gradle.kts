@@ -12,6 +12,7 @@ kotlin {
             implementation(libs.lifecycle.runtime.compose)
             implementation(libs.koin.compose.vm)
             implementation(libs.cmp.ui.backhandler)
+            implementation(libs.serialization.json)
         }
         commonTest.dependencies { implementation(project(":shared:testing")) }
     }

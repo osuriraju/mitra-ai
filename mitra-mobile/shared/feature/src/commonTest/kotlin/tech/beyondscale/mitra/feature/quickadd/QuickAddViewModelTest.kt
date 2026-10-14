@@ -28,6 +28,8 @@ import tech.beyondscale.mitra.testing.ViewModelTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import tech.beyondscale.mitra.testing.FakeNotesRepository
+import tech.beyondscale.mitra.testing.FakeWellnessRepository
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlin.time.Instant
@@ -48,8 +50,10 @@ class QuickAddViewModelTest : ViewModelTest() {
         money: FakeMoneyRepository = FakeMoneyRepository(listOf(acct), listOf(food)),
         habits: FakeHabitsRepository = FakeHabitsRepository(),
         clock: FixedClock = this@QuickAddViewModelTest.clock,
+        notes: FakeNotesRepository = FakeNotesRepository(),
+        wellness: FakeWellnessRepository = FakeWellnessRepository(),
     ): Harness {
-        val vm = QuickAddViewModel(repo, money, habits, clock)
+        val vm = QuickAddViewModel(repo, money, habits, notes, wellness, clock)
         val events = mutableListOf<UiEvent<QuickAddAction>>()
         val d = UnconfinedTestDispatcher(testScheduler)
         backgroundScope.launch(d) { vm.state.collect {} }
@@ -142,7 +146,7 @@ class QuickAddViewModelTest : ViewModelTest() {
     @Test fun saveExpenseUsesDefaultAccountAndLocalDate() = runTest {
         val money = FakeMoneyRepository(listOf(acct), listOf(food))
         val late = FixedClock(Instant.parse("2026-10-31T19:00:00Z"), TimeZone.of("Asia/Kolkata")) // 2026-11-01 00:30 IST
-        val vm = QuickAddViewModel(FakeTasksRepository(), money, FakeHabitsRepository(), late)
+        val vm = QuickAddViewModel(FakeTasksRepository(), money, FakeHabitsRepository(), FakeNotesRepository(), FakeWellnessRepository(), late)
         val events = mutableListOf<UiEvent<QuickAddAction>>()
         val d = UnconfinedTestDispatcher(testScheduler)
         backgroundScope.launch(d) { vm.state.collect {} }
@@ -186,16 +190,34 @@ class QuickAddViewModelTest : ViewModelTest() {
         assertEquals(emptyList(), money.calls)
     }
 
-    @Test fun otherTypesStillArriveLater() = runTest {
+    @Test fun noteCreatesTheNoteAndOpensItsEditor() = runTest {
         val repo = FakeTasksRepository()
-        val h = start(repo)
-        h.vm.onAction(QuickAddAction.Text("Lunch 200"))
+        val notes = FakeNotesRepository()
+        val h = start(repo, notes = notes)
+        val opened = mutableListOf<QuickAddEvent>()
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { h.vm.navigation.toList(opened) }
         h.vm.onAction(QuickAddAction.Type(QuickType.Note))
+        assertFalse(h.vm.state.value.canSave)
+        h.vm.onAction(QuickAddAction.Text("Read later\nhttps://example.com"))
         h.vm.onAction(QuickAddAction.Save)
         runCurrent()
-        assertEquals("Note arrives with Notes — add it on the web for now.", h.vm.state.value.notice)
-        assertFalse(h.vm.state.value.canSave)
+        val n = notes.noteFlow.value.single()
+        assertEquals("Read later", n.title)
+        assertEquals("https://example.com", n.body)
+        assertEquals(listOf<QuickAddEvent>(QuickAddEvent.OpenNote(n.id)), opened)
+        assertTrue(h.events.any { it is UiEvent.Close })
         assertEquals(emptyList(), repo.calls)
+    }
+
+    @Test fun moodLogsTodayAndCloses() = runTest {
+        val wellness = FakeWellnessRepository()
+        val h = start(FakeTasksRepository(), wellness = wellness)
+        h.vm.onAction(QuickAddAction.Type(QuickType.Mood))
+        h.vm.onAction(QuickAddAction.Mood(4))
+        runCurrent()
+        assertEquals(4, wellness.entryFlow.value["2026-10-13"]?.mood)
+        assertTrue(h.events.any { it is UiEvent.Snack && it.text.startsWith("Mood logged") })
+        assertTrue(h.events.any { it is UiEvent.Close })
     }
 
     // 10:00 IST on Wed 14 Oct (testHabit / logRun's TODAY)
@@ -209,7 +231,6 @@ class QuickAddViewModelTest : ViewModelTest() {
         h.vm.onAction(QuickAddAction.Text("rea"))
         runCurrent()
         assertEquals(listOf("Read"), h.vm.state.value.habitRows.map { it.name })
-        assertNull(h.vm.state.value.notice)
         assertFalse(h.vm.state.value.canSave)
 
         h.vm.onAction(QuickAddAction.Text(""))

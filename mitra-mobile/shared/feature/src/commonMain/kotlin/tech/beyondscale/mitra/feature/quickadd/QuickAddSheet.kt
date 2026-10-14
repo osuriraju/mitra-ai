@@ -39,6 +39,8 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import tech.beyondscale.mitra.designsystem.components.ChipTone
 import tech.beyondscale.mitra.designsystem.components.MitraButton
+import tech.beyondscale.mitra.designsystem.components.ButtonKind
+import tech.beyondscale.mitra.feature.wellness.MoodRow
 import tech.beyondscale.mitra.designsystem.components.MitraChip
 import tech.beyondscale.mitra.designsystem.components.MitraTextField
 import tech.beyondscale.mitra.designsystem.icons.MitraIcons
@@ -56,23 +58,31 @@ private fun QuickType.icon(): ImageVector = when (this) {
 /** Quick Add (spec §9): type chips, one parsed-as-you-type field and the chips it recognised. Shown while this composable is in the tree. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun QuickAddSheet(state: QuickAddUiState, onAction: (QuickAddAction) -> Unit, onDismiss: () -> Unit) {
+fun QuickAddSheet(
+    state: QuickAddUiState,
+    onAction: (QuickAddAction) -> Unit,
+    onDismiss: () -> Unit,
+    /** The type chips offered (the shell drops those of switched-off modules). */
+    types: List<QuickType> = QuickType.entries,
+) {
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
         containerColor = Mitra.colors.bg,
     ) {
-        QuickAddContent(state, onAction)
+        QuickAddContent(state, onAction, types)
     }
 }
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun QuickAddContent(state: QuickAddUiState, onAction: (QuickAddAction) -> Unit) {
+private fun QuickAddContent(state: QuickAddUiState, onAction: (QuickAddAction) -> Unit, types: List<QuickType>) {
     val c = Mitra.colors
     val focus = remember { FocusRequester() }
     val keyboard = LocalSoftwareKeyboardController.current
     LaunchedEffect(Unit) {
+        // Mood has no text field to focus.
+        if (state.type == QuickType.Mood) return@LaunchedEffect
         focus.requestFocus()
         keyboard?.show()
     }
@@ -82,9 +92,18 @@ private fun QuickAddContent(state: QuickAddUiState, onAction: (QuickAddAction) -
     ) {
         Text("Quick add", style = Mitra.type.h2, color = c.text, modifier = Modifier.semantics { heading() })
         Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-            QuickType.entries.forEach { t ->
+            types.forEach { t ->
                 MitraChip(t.label, tone = ChipTone.Outline, icon = t.icon(), selected = state.type == t, onClick = { onAction(QuickAddAction.Type(t)) })
             }
+        }
+        if (state.type == QuickType.Mood) {
+            Text("How are you feeling today?", style = Mitra.type.sm.copy(fontWeight = FontWeight.SemiBold), color = c.muted)
+            MoodRow(state.mood, { onAction(QuickAddAction.Mood(it)) })
+            MitraButton(
+                "Full check-in", onClick = { onAction(QuickAddAction.OpenCheckin) }, kind = ButtonKind.Outline,
+                modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
+            )
+            return@Column
         }
         MitraTextField(
             value = state.text,
@@ -93,6 +112,7 @@ private fun QuickAddContent(state: QuickAddUiState, onAction: (QuickAddAction) -
             placeholder = when (state.type) {
                 QuickType.Expense -> "₹240 food lunch"
                 QuickType.Habit -> "Search today's habits"
+                QuickType.Note -> "Idea, link or anything to keep"
                 else -> "Call John tomorrow p1 #work"
             },
             error = state.error,
@@ -101,9 +121,7 @@ private fun QuickAddContent(state: QuickAddUiState, onAction: (QuickAddAction) -
             onImeAction = { if (state.type == QuickType.Habit) keyboard?.hide() else onAction(QuickAddAction.Save) },
             fieldModifier = Modifier.focusRequester(focus),
         )
-        if (state.notice != null) {
-            Text(state.notice, style = Mitra.type.body, color = c.muted)
-        } else if (state.type == QuickType.Habit) {
+        if (state.type == QuickType.Habit) {
             HabitCheckList(state, onAction)
         } else if (state.type == QuickType.Expense) {
             if (state.amountLabel != null || state.categoryLabel != null) {
@@ -116,7 +134,7 @@ private fun QuickAddContent(state: QuickAddUiState, onAction: (QuickAddAction) -
                     }
                 }
             }
-        } else if (state.dueLabel != null || state.priLabel != null || state.projectLabel != null) {
+        } else if (state.type == QuickType.Task && (state.dueLabel != null || state.priLabel != null || state.projectLabel != null)) {
             FlowRow(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
                 state.dueLabel?.let {
                     MitraChip("Due · $it", icon = MitraIcons.Calendar, selected = true, onRemove = { onAction(QuickAddAction.ClearDue) })
@@ -131,7 +149,7 @@ private fun QuickAddContent(state: QuickAddUiState, onAction: (QuickAddAction) -
         }
         if (state.type != QuickType.Habit) {
             MitraButton(
-                if (state.type == QuickType.Expense) "Save expense" else "Add",
+                when (state.type) { QuickType.Expense -> "Save expense"; QuickType.Note -> "Create note"; else -> "Add" },
                 onClick = { onAction(QuickAddAction.Save) },
                 enabled = state.canSave,
                 modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
